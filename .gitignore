@@ -1,0 +1,26 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Generated artifacts
+audio.wav
+*_subtitled.mp4
+
+# Test assets
+tests/*.mp4
+tests/*.wav
+
+# Environment variables
+.env
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
