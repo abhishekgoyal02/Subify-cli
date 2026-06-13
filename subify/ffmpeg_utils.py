@@ -9,7 +9,7 @@ import subprocess
 from typing import Optional
 
 
-def _get_ffmpeg_path() -> Optional[str]:
+def get_ffmpeg_path() -> Optional[str]:
     ffmpeg_path = shutil.which("ffmpeg")
     if ffmpeg_path:
         return ffmpeg_path
@@ -27,7 +27,7 @@ def extract_audio(video_path: str, audio_out: str) -> None:
     Raises FileNotFoundError when ffmpeg is not available and RuntimeError if
     ffmpeg exits with an error.
     """
-    ffmpeg_path = _get_ffmpeg_path()
+    ffmpeg_path = get_ffmpeg_path()
     if not ffmpeg_path:
         raise FileNotFoundError(
             "ffmpeg not found. Install ffmpeg or set SUBIFY_FFMPEG_PATH to the ffmpeg executable."

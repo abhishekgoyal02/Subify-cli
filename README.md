@@ -1,9 +1,13 @@
-# Subify-CLI (placeholder)
+# Subify-CLI
 
-This repository contains the initial CLI skeleton for Subify-CLI.
+Subify-CLI now prints a Rich-based startup banner and lightweight system
+status block on launch.
 
-Usage (after installing or running as module):
+Usage:
 
+```bash
 python -m subify --help
+python -m subify generate-srt video.mp4
+```
 
-The current implementation provides placeholder commands for the first milestone.
+Startup output is written cleanly so command output remains separate.

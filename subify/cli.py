@@ -1,12 +1,9 @@
-"""Subify CLI - compact, readable command handlers.
-
-This module provides command-line entry points. It intentionally keeps the
-behavior unchanged while removing noisy placeholders and improving names.
-"""
+"""Subify CLI command handlers."""
 import argparse
 import os
 import sys
 
+from .banner import display_startup_banner
 from . import transcribe
 
 
@@ -45,6 +42,8 @@ def _process(args):
 
 
 def main():
+    display_startup_banner()
+
     parser = argparse.ArgumentParser(
         prog="subify",
         description="Subify CLI - subtitle generation utilities (placeholders remain)",
