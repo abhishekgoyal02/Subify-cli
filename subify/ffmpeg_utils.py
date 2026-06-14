@@ -1,8 +1,4 @@
-"""FFmpeg utilities using subprocess.
-
-Helpers call system ffmpeg. They raise clear exceptions on failure so callers
-can present user-friendly messages.
-"""
+"""FFmpeg discovery and audio extraction."""
 import os
 import shutil
 import subprocess
@@ -32,8 +28,6 @@ def extract_audio(video_path: str, audio_out: str) -> None:
         raise FileNotFoundError(
             "ffmpeg not found. Install ffmpeg or set SUBIFY_FFMPEG_PATH to the ffmpeg executable."
         )
-
-    print(f"Using FFmpeg: {ffmpeg_path}")
 
     cmd = [
         ffmpeg_path,

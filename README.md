@@ -1,20 +1,19 @@
 # Subify-CLI
 
-Subify-CLI now prints a Rich-based startup banner and extracts speech from a
-video into plain transcript text using Faster-Whisper.
+A command-line tool that extracts speech from video files and generates plain-text transcripts using [Faster-Whisper](https://github.com/SYSTRAN/faster-whisper).
 
-Install dependencies:
+Requires **FFmpeg** on your system PATH (or set `SUBIFY_FFMPEG_PATH`).
+
+## Installation
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Usage:
+## Usage
 
 ```bash
-python -m subify --help
 python -m subify generate-srt video.mp4
 ```
 
-`generate-srt` currently prints the transcript only. It does not create an
-`.srt` file yet.
+The transcript is printed to stdout. SRT file output is planned for a future release.
