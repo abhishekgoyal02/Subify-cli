@@ -1,9 +1,9 @@
-"""Subify CLI command handlers."""
 import argparse
 import os
 import sys
 
 from .banner import display_startup_banner
+from . import ffmpeg_utils
 from . import transcribe
 
 
@@ -19,14 +19,29 @@ def _generate_srt(args):
 
     try:
         print("Starting audio extraction...")
-        audio_path = transcribe.transcribe(args.input, audio_out="audio.wav")
+        audio_path = "audio.wav"
+        ffmpeg_utils.extract_audio(args.input, audio_out=audio_path)
         print("Audio extracted successfully.")
-        print(f"Audio saved to: {audio_path}")
     except FileNotFoundError as e:
         print(f"Error: {e}")
         sys.exit(1)
     except RuntimeError as e:
         print(f"Error during audio extraction: {e}")
+        sys.exit(1)
+
+    try:
+        print("Starting transcription...")
+        transcript = transcribe.transcribe_audio(audio_path, model_name="base")
+        print()
+        if transcript.strip():
+            print(transcript)
+        print()
+        print("Transcription completed.")
+    except FileNotFoundError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+    except RuntimeError as e:
+        print(f"Error during transcription: {e}")
         sys.exit(1)
 
 
@@ -46,13 +61,13 @@ def main():
 
     parser = argparse.ArgumentParser(
         prog="subify",
-        description="Subify CLI - subtitle generation utilities (placeholders remain)",
+        description="Subify CLI - transcript generation utilities (placeholders remain)",
     )
     parser.add_argument("--version", action="version", version="0.1.0")
 
     subparsers = parser.add_subparsers(dest="command")
 
-    p_gen = subparsers.add_parser("generate-srt", help="Generate .srt from video")
+    p_gen = subparsers.add_parser("generate-srt", help="Generate transcript from video")
     p_gen.add_argument("input", help="Input video file")
     p_gen.set_defaults(func=_generate_srt)
 

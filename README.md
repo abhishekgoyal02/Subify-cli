@@ -1,7 +1,13 @@
 # Subify-CLI
 
-Subify-CLI now prints a Rich-based startup banner and lightweight system
-status block on launch.
+Subify-CLI now prints a Rich-based startup banner and extracts speech from a
+video into plain transcript text using Faster-Whisper.
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
 
 Usage:
 
@@ -10,4 +16,5 @@ python -m subify --help
 python -m subify generate-srt video.mp4
 ```
 
-Startup output is written cleanly so command output remains separate.
+`generate-srt` currently prints the transcript only. It does not create an
+`.srt` file yet.
