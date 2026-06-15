@@ -1,19 +1,45 @@
 """Transcription helpers using Faster-Whisper."""
 
 import os
+from dataclasses import dataclass
+from typing import Iterable, List
 
 
-def _combine_segments(segments) -> str:
-    lines = []
-    for segment in segments:
-        text = segment.text.strip()
-        if text:
-            lines.append(text)
-    return "\n".join(lines)
+@dataclass(frozen=True)
+class TranscriptSegment:
+    """Timestamped transcript text from a single Whisper segment."""
+
+    start: float
+    end: float
+    text: str
 
 
-def transcribe_audio(audio_path: str, model_name: str = "base") -> str:
-    """Transcribe `audio_path` and return plain text."""
+@dataclass(frozen=True)
+class TranscriptionResult:
+    """Structured transcription data retained for future output formats."""
+
+    segments: List[TranscriptSegment]
+
+    @property
+    def text(self) -> str:
+        return "\n".join(segment.text for segment in self.segments if segment.text)
+
+
+def _materialize_segments(segments: Iterable) -> List[TranscriptSegment]:
+    return [
+        TranscriptSegment(
+            start=float(segment.start),
+            end=float(segment.end),
+            text=segment.text.strip(),
+        )
+        for segment in segments
+    ]
+
+
+def transcribe_audio_with_segments(
+    audio_path: str, model_name: str = "base"
+) -> TranscriptionResult:
+    """Transcribe `audio_path` and return timestamped segment data."""
     if not os.path.exists(audio_path):
         raise FileNotFoundError(f"Audio file '{audio_path}' does not exist.")
 
@@ -33,7 +59,13 @@ def transcribe_audio(audio_path: str, model_name: str = "base") -> str:
 
     try:
         segments, _info = model.transcribe(audio_path)
-    except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
+        materialized_segments = _materialize_segments(segments)
+    except Exception as exc:
         raise RuntimeError(f"Faster-Whisper transcription failed: {exc}") from exc
 
-    return _combine_segments(segments)
+    return TranscriptionResult(segments=materialized_segments)
+
+
+def transcribe_audio(audio_path: str, model_name: str = "base") -> str:
+    """Transcribe `audio_path` and return plain text."""
+    return transcribe_audio_with_segments(audio_path, model_name=model_name).text
