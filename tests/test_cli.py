@@ -11,6 +11,9 @@ class GenerateSrtTests(unittest.TestCase):
     def setUp(self):
         self.input_file = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
         self.input_file.close()
+        pipeline_patcher = mock.patch("subify.cli.update_pipeline")
+        self.update_pipeline = pipeline_patcher.start()
+        self.addCleanup(pipeline_patcher.stop)
 
     def tearDown(self):
         if os.path.exists(self.input_file.name):
@@ -26,6 +29,10 @@ class GenerateSrtTests(unittest.TestCase):
         audio_path = extract_audio.call_args.kwargs["audio_out"]
         self.assertNotEqual(audio_path, "audio.wav")
         self.assertFalse(os.path.exists(audio_path))
+        self.assertEqual(
+            self.update_pipeline.call_args_list,
+            [mock.call(stage=1), mock.call(stage=2), mock.call(stage=3)],
+        )
 
     @mock.patch(
         "subify.cli.ffmpeg_utils.extract_audio",
@@ -38,6 +45,7 @@ class GenerateSrtTests(unittest.TestCase):
         audio_path = extract_audio.call_args.kwargs["audio_out"]
         self.assertEqual(exit_context.exception.code, 1)
         self.assertFalse(os.path.exists(audio_path))
+        self.update_pipeline.assert_called_once_with(stage=1)
 
     @mock.patch(
         "subify.cli.transcribe.transcribe_audio",
@@ -53,6 +61,10 @@ class GenerateSrtTests(unittest.TestCase):
         audio_path = extract_audio.call_args.kwargs["audio_out"]
         self.assertEqual(exit_context.exception.code, 1)
         self.assertFalse(os.path.exists(audio_path))
+        self.assertEqual(
+            self.update_pipeline.call_args_list,
+            [mock.call(stage=1), mock.call(stage=2)],
+        )
 
     @mock.patch("subify.cli.ffmpeg_utils.extract_audio")
     def test_directory_input_is_rejected_before_extraction(self, extract_audio):
@@ -62,6 +74,7 @@ class GenerateSrtTests(unittest.TestCase):
 
         self.assertEqual(exit_context.exception.code, 1)
         extract_audio.assert_not_called()
+        self.update_pipeline.assert_not_called()
 
     @mock.patch("subify.cli.os.access", return_value=False)
     @mock.patch("subify.cli.ffmpeg_utils.extract_audio")
@@ -73,6 +86,7 @@ class GenerateSrtTests(unittest.TestCase):
 
         self.assertEqual(exit_context.exception.code, 1)
         extract_audio.assert_not_called()
+        self.update_pipeline.assert_not_called()
 
 
 if __name__ == "__main__":
