@@ -1,26 +1,51 @@
-# Byte-compiled / cache
-__pycache__/
+# Python cache
+**pycache**/
 *.py[cod]
 *$py.class
 
 # Virtual environments
+
 .venv/
 venv/
 env/
 
+# Environment variables
+
+.env
+.env.*
+
 # Generated artifacts
+
+*.srt
 audio.wav
 *_subtitled.mp4
+*_subtitled.mkv
+
+# Temporary outputs
+
+outputs/
+temp/
+tmp/
 
 # Test assets
+
 tests/*.mp4
 tests/*.wav
+tests/*.srt
 
-# Environment variables
-.env
+# Coverage & test reports
 
-# OS / editor
+.coverage
+htmlcov/
+.pytest_cache/
+
+# IDEs
+
+.vscode/
+.idea/
+
+# OS files
+
 .DS_Store
 Thumbs.db
-.idea/
-.vscode/
+desktop.ini
