@@ -135,5 +135,86 @@ class GenerateSrtTests(unittest.TestCase):
         self.update_pipeline.assert_not_called()
 
 
+class ProcessVideoTests(unittest.TestCase):
+    def setUp(self):
+        self.input_file = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+        self.input_file.close()
+        pipeline_patcher = mock.patch("subify.cli.update_pipeline")
+        self.update_pipeline = pipeline_patcher.start()
+        self.addCleanup(pipeline_patcher.stop)
+
+    def tearDown(self):
+        if os.path.exists(self.input_file.name):
+            os.remove(self.input_file.name)
+
+    @mock.patch("subify.cli.embed.embed_subtitles")
+    @mock.patch("subify.cli.transcribe.transcribe_audio_with_segments")
+    @mock.patch("subify.cli.ffmpeg_utils.extract_audio")
+    def test_process_success(
+        self, extract_audio, transcribe_audio_with_segments, embed_subtitles
+    ):
+        from subify.transcribe import TranscriptionResult, TranscriptSegment
+        mock_result = TranscriptionResult(
+            segments=[TranscriptSegment(start=0.0, end=2.0, text="Hello")]
+        )
+        transcribe_audio_with_segments.return_value = mock_result
+
+        srt_path = os.path.splitext(self.input_file.name)[0] + ".srt"
+        output_path = os.path.splitext(self.input_file.name)[0] + "_subtitled.mp4"
+        self.addCleanup(lambda: os.path.exists(srt_path) and os.remove(srt_path))
+        self.addCleanup(lambda: os.path.exists(output_path) and os.remove(output_path))
+
+        cli._process_video(SimpleNamespace(input=self.input_file.name))
+
+        self.assertEqual(
+            self.update_pipeline.call_args_list,
+            [
+                mock.call(stage=1),
+                mock.call(stage=2),
+                mock.call(stage=3),
+                mock.call(stage=4),
+            ],
+        )
+        embed_subtitles.assert_called_once_with(
+            video_path=self.input_file.name,
+            subtitle_path=srt_path,
+            output_path=output_path,
+        )
+
+    @mock.patch("subify.cli.transcribe.transcribe_audio_with_segments")
+    @mock.patch("subify.cli.ffmpeg_utils.extract_audio")
+    def test_process_empty_transcription_aborts(
+        self, extract_audio, transcribe_audio_with_segments
+    ):
+        from subify.transcribe import TranscriptionResult
+        mock_result = TranscriptionResult(segments=[])
+        transcribe_audio_with_segments.return_value = mock_result
+
+        with self.assertRaises(SystemExit) as exit_context:
+            cli._process_video(SimpleNamespace(input=self.input_file.name))
+
+        self.assertEqual(exit_context.exception.code, 1)
+
+    @mock.patch("subify.cli.embed.embed_subtitles", side_effect=RuntimeError("embed failed"))
+    @mock.patch("subify.cli.transcribe.transcribe_audio_with_segments")
+    @mock.patch("subify.cli.ffmpeg_utils.extract_audio")
+    def test_process_embed_failure_aborts(
+        self, extract_audio, transcribe_audio_with_segments, embed_subtitles
+    ):
+        from subify.transcribe import TranscriptionResult, TranscriptSegment
+        mock_result = TranscriptionResult(
+            segments=[TranscriptSegment(start=0.0, end=2.0, text="Hello")]
+        )
+        transcribe_audio_with_segments.return_value = mock_result
+
+        srt_path = os.path.splitext(self.input_file.name)[0] + ".srt"
+        self.addCleanup(lambda: os.path.exists(srt_path) and os.remove(srt_path))
+
+        with self.assertRaises(SystemExit) as exit_context:
+            cli._process_video(SimpleNamespace(input=self.input_file.name))
+
+        self.assertEqual(exit_context.exception.code, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
