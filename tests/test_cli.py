@@ -19,11 +19,20 @@ class GenerateSrtTests(unittest.TestCase):
         if os.path.exists(self.input_file.name):
             os.remove(self.input_file.name)
 
-    @mock.patch("subify.cli.transcribe.transcribe_audio", return_value="Hello")
+    @mock.patch("subify.cli.transcribe.transcribe_audio_with_segments")
     @mock.patch("subify.cli.ffmpeg_utils.extract_audio")
     def test_temporary_audio_is_removed_after_success(
-        self, extract_audio, _transcribe_audio
+        self, extract_audio, transcribe_audio_with_segments
     ):
+        from subify.transcribe import TranscriptionResult, TranscriptSegment
+        mock_result = TranscriptionResult(
+            segments=[TranscriptSegment(start=0.0, end=2.0, text="Hello")]
+        )
+        transcribe_audio_with_segments.return_value = mock_result
+
+        srt_path = os.path.splitext(self.input_file.name)[0] + ".srt"
+        self.addCleanup(lambda: os.path.exists(srt_path) and os.remove(srt_path))
+
         cli._generate_srt(SimpleNamespace(input=self.input_file.name))
 
         audio_path = extract_audio.call_args.kwargs["audio_out"]
@@ -33,6 +42,10 @@ class GenerateSrtTests(unittest.TestCase):
             self.update_pipeline.call_args_list,
             [mock.call(stage=1), mock.call(stage=2), mock.call(stage=3)],
         )
+        self.assertTrue(os.path.exists(srt_path))
+        with open(srt_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn("Hello", content)
 
     @mock.patch(
         "subify.cli.ffmpeg_utils.extract_audio",
@@ -48,7 +61,7 @@ class GenerateSrtTests(unittest.TestCase):
         self.update_pipeline.assert_called_once_with(stage=1)
 
     @mock.patch(
-        "subify.cli.transcribe.transcribe_audio",
+        "subify.cli.transcribe.transcribe_audio_with_segments",
         side_effect=RuntimeError("transcription failed"),
     )
     @mock.patch("subify.cli.ffmpeg_utils.extract_audio")
@@ -65,6 +78,39 @@ class GenerateSrtTests(unittest.TestCase):
             self.update_pipeline.call_args_list,
             [mock.call(stage=1), mock.call(stage=2)],
         )
+
+    @mock.patch("subify.cli.transcribe.transcribe_audio_with_segments")
+    @mock.patch("subify.cli.ffmpeg_utils.extract_audio")
+    def test_empty_transcription_result_aborts(
+        self, extract_audio, transcribe_audio_with_segments
+    ):
+        from subify.transcribe import TranscriptionResult
+        mock_result = TranscriptionResult(segments=[])
+        transcribe_audio_with_segments.return_value = mock_result
+
+        with self.assertRaises(SystemExit) as exit_context:
+            cli._generate_srt(SimpleNamespace(input=self.input_file.name))
+
+        self.assertEqual(exit_context.exception.code, 1)
+        srt_path = os.path.splitext(self.input_file.name)[0] + ".srt"
+        self.assertFalse(os.path.exists(srt_path))
+
+    @mock.patch("subify.cli.transcribe.transcribe_audio_with_segments")
+    @mock.patch("subify.cli.ffmpeg_utils.extract_audio")
+    @mock.patch("builtins.open", side_effect=PermissionError("Permission denied"))
+    def test_write_permission_denied_handled(
+        self, _mock_open, extract_audio, transcribe_audio_with_segments
+    ):
+        from subify.transcribe import TranscriptionResult, TranscriptSegment
+        mock_result = TranscriptionResult(
+            segments=[TranscriptSegment(start=0.0, end=2.0, text="Hello")]
+        )
+        transcribe_audio_with_segments.return_value = mock_result
+
+        with self.assertRaises(SystemExit) as exit_context:
+            cli._generate_srt(SimpleNamespace(input=self.input_file.name))
+
+        self.assertEqual(exit_context.exception.code, 1)
 
     @mock.patch("subify.cli.ffmpeg_utils.extract_audio")
     def test_directory_input_is_rejected_before_extraction(self, extract_audio):

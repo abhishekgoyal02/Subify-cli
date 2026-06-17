@@ -9,7 +9,7 @@ from .banner import (
     stop_pipeline,
     update_pipeline,
 )
-from . import ffmpeg_utils, transcribe
+from . import ffmpeg_utils, transcribe, srt_writer
 
 
 def _pipeline_print(*values, sep: str = " ", end: str = "\n") -> None:
@@ -46,13 +46,35 @@ def _generate_srt(args):
         update_pipeline(stage=2)
 
         _pipeline_print("Starting transcription...")
-        transcript = transcribe.transcribe_audio(audio_path, model_name="base")
+        result = transcribe.transcribe_audio_with_segments(audio_path, model_name="base")
         update_pipeline(stage=3)
         _pipeline_print()
+        transcript = result.text
         if transcript.strip():
             _pipeline_print(transcript)
         _pipeline_print()
         _pipeline_print("Transcription completed.")
+
+        srt_content = srt_writer.generate_srt(result.segments)
+        if not srt_content.strip():
+            _pipeline_print("Error: Transcription result is empty.")
+            sys.exit(1)
+
+        input_path = args.input
+        base, _ = os.path.splitext(input_path)
+        srt_path = base + ".srt"
+
+        try:
+            with open(srt_path, "w", encoding="utf-8") as f:
+                f.write(srt_content)
+        except PermissionError:
+            _pipeline_print(f"Error: Permission denied. Unable to write to '{srt_path}'.")
+            sys.exit(1)
+        except OSError as e:
+            _pipeline_print(f"Error: Failed to write SRT file: {e}")
+            sys.exit(1)
+
+        _pipeline_print(f"SRT saved successfully: {srt_path}")
     except (FileNotFoundError, RuntimeError) as e:
         _pipeline_print(f"Error: {e}")
         sys.exit(1)
