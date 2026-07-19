@@ -1,0 +1,172 @@
+Metadata-Version: 2.4
+Name: Subify-CLI
+Version: 0.1.0
+Summary: Developer CLI architecture for subtitle generation and embedding.
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: rich<14.0,>=13.0
+Requires-Dist: faster-whisper<2.0,>=1.0
+
+# Subify-CLI
+
+Subify-CLI is a developer-focused subtitle generation and subtitle embedding tool. It provides a public command-line interface while keeping the processing pipeline reusable for future interfaces.
+
+## Current Status
+
+Implemented:
+
+- `python -m subify` package entry point
+- installable `subify` console command entry point
+- `process`, `generate-srt`, and `embed` command structure
+- reusable pipeline API in `subify.pipeline`
+- FFmpeg helper boundaries
+- Faster-Whisper transcription boundary configured for English speech recognition
+- SRT rendering
+- subtitle embedding command construction
+- ZIP packaging
+- temporary working directory cleanup through `tempfile.TemporaryDirectory`
+- architecture-focused `unittest` coverage
+
+Planned:
+
+- production validation of supported media formats
+- full end-to-end processing against real video samples
+- configurable transcription model/device settings
+- subtitle styling options
+- Telegram bot interface
+- documentation website
+
+## Architecture
+
+The CLI is intentionally thin. It parses arguments, displays user-facing messages, and calls the core pipeline.
+
+```text
+CLI
+  -> subify.pipeline.process_video()
+      -> FFmpeg audio extraction
+      -> Faster-Whisper transcription
+      -> SRT generation
+      -> FFmpeg subtitle embedding
+      -> ZIP packaging
+```
+
+Additional core entry points support SRT-only generation and embedding an existing SRT:
+
+- `subify.pipeline.generate_srt()`
+- `subify.pipeline.embed_existing_subtitles()`
+
+The future Telegram bot should call these pipeline APIs directly rather than shelling out to the CLI.
+
+## CLI Usage
+
+```powershell
+subify --help
+subify --version
+subify process "lesson.mp4"
+subify generate-srt "lesson.mp4"
+subify embed "lesson.mp4" "lesson.srt"
+```
+
+Equivalent module invocation:
+
+```powershell
+python -m subify --help
+python -m subify --version
+python -m subify process "lesson.mp4"
+python -m subify generate-srt "lesson.mp4"
+python -m subify embed "lesson.mp4" "lesson.srt"
+```
+
+To print transcript segments, opt in explicitly:
+
+```powershell
+subify process "lesson.mp4" --show-transcript
+subify generate-srt "lesson.mp4" --show-transcript
+```
+
+The transcript is hidden by default so long videos do not flood the terminal.
+
+## Output
+
+Full process output:
+
+```text
+output/
+  lesson_subify.zip
+```
+
+ZIP contents:
+
+```text
+lesson.srt
+lesson_subtitled.mp4
+```
+
+SRT-only output:
+
+```text
+output/
+  lesson.srt
+```
+
+Embed-only output:
+
+```text
+output/
+  lesson_subtitled.mp4
+```
+
+The original video is never modified.
+
+## Subtitle Language
+
+Current subtitle language: English.
+
+Subify currently passes `language="en"` to Faster-Whisper, which performs English speech recognition. This means the current version is intended for English speech to English subtitles. It does not claim universal translation from arbitrary spoken languages into English.
+
+The transcription API keeps language selection in the core layer so a future translation mode can be added without duplicating language behavior in CLI commands.
+
+## Requirements
+
+- Python 3.11+
+- FFmpeg installed and available on `PATH`
+- Python dependencies from `requirements.txt`
+
+Install dependencies:
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
+FFmpeg is an external system dependency and is not installed by this package.
+
+## Local Console Command Testing
+
+After installing the project in editable mode, the console command is available as `subify`:
+
+```powershell
+python -m pip install -e .
+subify --help
+```
+
+Without installation, use:
+
+```powershell
+python -m subify --help
+```
+
+## Audio Extraction Strategy
+
+The initial pipeline extracts temporary mono 16 kHz PCM WAV audio for Whisper compatibility:
+
+- mono audio
+- 16 kHz sample rate
+- 16-bit PCM WAV
+
+For a 1.5 hour video, this WAV is roughly 173 MB:
+
+```text
+16000 samples/sec * 2 bytes/sample * 5400 sec ~= 173 MB
+```
+
+That is acceptable for the current 1 GB / 1.5 hour target and avoids keeping video data in Python memory. Future optimization can evaluate direct media transcription or compressed temporary audio if disk usage becomes a bottleneck.

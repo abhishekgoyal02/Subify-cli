@@ -1,0 +1,2 @@
+[console_scripts]
+subify = subify.cli:main

@@ -1,0 +1,2 @@
+rich<14.0,>=13.0
+faster-whisper<2.0,>=1.0

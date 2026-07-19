@@ -1,0 +1,231 @@
+"""Terminal UI components for Subify."""
+
+from __future__ import annotations
+
+import io
+import sys
+from pathlib import Path
+
+ACCENT = "#E76F51"
+
+try:
+    from rich import box
+    from rich.align import Align
+    from rich.console import Console, Group
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
+except ImportError:  # pragma: no cover - fallback path for minimal environments
+    box = None
+    Align = None
+    Console = None
+    Group = None
+    Panel = None
+    Table = None
+    Text = None
+
+
+def _make_console() -> "Console | None":
+    """Create a Rich Console with forced UTF-8 on Windows to avoid encoding errors."""
+    if Console is None:
+        return None
+    # On Windows the legacy console uses cp1252 which can't handle box-drawing
+    # characters. Wrap stdout with UTF-8 so Rich renders them correctly.
+    if sys.platform == "win32":
+        utf8_stdout = io.TextIOWrapper(
+            sys.stdout.buffer, encoding="utf-8", errors="replace"
+        )
+        return Console(file=utf8_stdout, force_terminal=True)
+    return Console()
+
+
+console = _make_console()
+
+
+def render_welcome(version: str, cwd: Path | None = None) -> None:
+    """Render the no-command Subify welcome dashboard."""
+    if console is None or Panel is None or Table is None or Text is None or Align is None:
+        _render_plain_welcome(version, cwd)
+        return
+
+    width = console.width
+    left = _identity_panel(version, cwd)
+    right = _getting_started_panel()
+
+    if width >= 96:
+        grid = Table.grid(expand=True)
+        grid.add_column(ratio=5)
+        grid.add_column(ratio=7)
+        grid.add_row(left, right)
+        content = grid
+    else:
+        content = Group(left, right) if Group is not None else Table.grid()
+
+    console.print(
+        Panel(
+            content,
+            title=_header(version),
+            title_align="left",
+            border_style=ACCENT,
+            box=box.ROUNDED if box is not None else None,
+            padding=(1, 2),
+        )
+    )
+
+    # Tagline below the main panel
+    tip = Text()
+    tip.append("  AI-Powered Subtitles ", style=f"bold {ACCENT}")
+    tip.append(" · ", style="gray50")
+    tip.append("Process", style="gray50")
+    tip.append(" · ", style="gray50")
+    tip.append("Generate-srt", style="gray50")
+    tip.append(" · ", style="gray50")
+    tip.append("Embed", style="gray50")
+    tip.append(" · ", style="gray50")
+    tip.append("Package", style="gray50")
+    console.print(tip)
+    console.print()
+
+
+def render_dependency_status(*, ffmpeg_ready: bool, whisper_ready: bool, include_whisper: bool) -> None:
+    if console is not None and Table is not None:
+        table = Table(show_header=False, box=None, pad_edge=False)
+        table.add_column("Dependency", style="white")
+        table.add_column("Status")
+        table.add_row("FFmpeg", _status_text(ffmpeg_ready))
+        if include_whisper:
+            table.add_row("Faster-Whisper", _status_text(whisper_ready))
+        console.print(table)
+        return
+
+    print(f"FFmpeg         {'Ready' if ffmpeg_ready else 'Missing'}")
+    if include_whisper:
+        print(f"Faster-Whisper {'Ready' if whisper_ready else 'Missing'}")
+
+
+def render_stage(stage: str, status: str) -> None:
+    if status == "start":
+        print_message(f"[dim]  -[/] {stage}")
+    elif status == "complete":
+        print_message(f"[{ACCENT}]  OK[/] {stage}")
+
+
+def render_transcript_header() -> None:
+    print_message(f"[{ACCENT}]Transcript[/]")
+
+
+def render_success(message: str, output_path: Path) -> None:
+    print_message(f"\n[{ACCENT}]{message}[/]\n\nOutput:\n{output_path}")
+
+
+def render_error(message: str) -> None:
+    if console is not None:
+        console.print(f"[red]Subify error:[/] {message}", stderr=True)
+    else:
+        print(f"Subify error: {message}", file=sys.stderr)
+
+
+def print_message(message: str) -> None:
+    if console is not None:
+        console.print(message)
+    else:
+        print(message)
+
+
+def _identity_panel(version: str, cwd: Path | None) -> Panel:
+    body = Table.grid(expand=True)
+    body.add_column(justify="center")
+    body.add_row(Text("Welcome to Subify!", style=f"bold {ACCENT}"))
+    body.add_row(Text(_headphones_icon(), style=f"bold {ACCENT}", justify="center"))
+    body.add_row(Text(f"Subify-CLI v{version}", style=f"bold {ACCENT}", justify="center"))
+    body.add_row(Text("AI-Powered English Subtitle Pipeline", style="white", justify="center"))
+    if cwd is not None:
+        body.add_row(Text(str(cwd), style="dim", justify="center", overflow="fold"))
+
+    return Panel(
+        Align.center(body),
+        border_style=ACCENT,
+        box=box.ROUNDED if box is not None else None,
+        padding=(1, 2),
+    )
+
+
+def _getting_started_panel() -> Panel:
+    commands = Table.grid(padding=(0, 1))
+    commands.add_column(style=f"bold {ACCENT}", no_wrap=True)
+    commands.add_column(style="white")
+    commands.add_row("process", "subify process video.mp4")
+    commands.add_row("generate-srt", "subify generate-srt video.mp4")
+    commands.add_row("embed", "subify embed video.mp4 subtitles.srt")
+
+    pipeline = Text()
+    for index, step in enumerate(
+        ["Audio", "Transcribe", "SRT", "Embed", "ZIP"]
+    ):
+        if index:
+            pipeline.append(" -> ", style="dim")
+        pipeline.append(step, style="white")
+
+    body = Table.grid(expand=True)
+    body.add_column()
+    body.add_row(Text("Getting Started", style=f"bold {ACCENT}"))
+    body.add_row(commands)
+    body.add_row("")
+    body.add_row(Text("Pipeline", style=f"bold {ACCENT}"))
+    body.add_row(pipeline)
+
+    return Panel(
+        body,
+        border_style=ACCENT,
+        box=box.ROUNDED if box is not None else None,
+        padding=(1, 2),
+    )
+
+
+def _header(version: str) -> Text:
+    text = Text()
+    text.append(" Subify-CLI ", style=f"bold {ACCENT}")
+    text.append(f"v{version}", style="dim")
+    return text
+
+
+def _headphones_icon() -> str:
+    return "\n".join(
+        [
+            "   ╭───────╮   ",
+            " ╭─╯       ╰─╮ ",
+            " │   ●   ●   │ ",
+            " │     ─     │ ",
+            " ╰─╮   ▄   ╭─╯ ",
+            "   │ █████ │   ",
+            "   ╰───────╯   ",
+        ]
+    )
+
+
+def _status_text(ready: bool) -> str:
+    if ready:
+        return f"[{ACCENT}]Ready[/]"
+    return "[red]Missing[/]"
+
+
+def _render_plain_welcome(version: str, cwd: Path | None) -> None:
+    print("+------------------------------------------------------------+")
+    print(f"| Subify-CLI v{version:<45}|")
+    print("| Welcome to Subify!                                        |")
+    print("| AI-Powered English Subtitle Pipeline                      |")
+    print("|                                                            |")
+    print("|   __====__                                                 |")
+    print("|  /  o  o  \\                                                |")
+    print("| |    __    |                                               |")
+    print("|  \\__|__|__/                                                |")
+    print("|                                                            |")
+    print("| Getting Started                                            |")
+    print("|   subify process video.mp4                                 |")
+    print("|   subify generate-srt video.mp4                            |")
+    print("|   subify embed video.mp4 subtitles.srt                     |")
+    print("|                                                            |")
+    print("| Pipeline: Audio -> English Text -> SRT -> MP4 -> ZIP       |")
+    if cwd is not None:
+        print(f"| CWD: {str(cwd)[:53]:<53}|")
+    print("+------------------------------------------------------------+")
