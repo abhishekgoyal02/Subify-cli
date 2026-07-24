@@ -16,6 +16,7 @@ Implemented:
 - subtitle embedding command construction
 - ZIP packaging
 - temporary working directory cleanup through `tempfile.TemporaryDirectory`
+- structured pipeline result metadata for future integrations
 - architecture-focused `unittest` coverage
 
 Planned:
@@ -34,6 +35,7 @@ The CLI is intentionally thin. It parses arguments, displays user-facing message
 ```text
 CLI
   -> subify.pipeline.process_video()
+      -> shared models
       -> FFmpeg audio extraction
       -> Faster-Whisper transcription
       -> SRT generation
@@ -46,7 +48,7 @@ Additional core entry points support SRT-only generation and embedding an existi
 - `subify.pipeline.generate_srt()`
 - `subify.pipeline.embed_existing_subtitles()`
 
-The future Telegram bot should call these pipeline APIs directly rather than shelling out to the CLI.
+These APIs return structured result objects with output paths, transcript segments, elapsed time, language, and warnings. The future Telegram bot should call these pipeline APIs directly rather than shelling out to the CLI.
 
 ## CLI Usage
 

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Iterable
 
 from .errors import SRTError
-from .transcribe import TranscriptSegment
+from .models import TranscriptSegment
 
 
 def format_srt_timestamp(seconds: float) -> str:
@@ -22,15 +22,19 @@ def format_srt_timestamp(seconds: float) -> str:
 
 def render_srt(segments: Iterable[TranscriptSegment]) -> str:
     blocks: list[str] = []
-    for index, segment in enumerate(segments, start=1):
+    for segment in segments:
+        text = segment.text.strip()
+        if not text:
+            continue
         if segment.end < segment.start:
             raise SRTError("Segment end timestamp cannot be before start timestamp.")
+        index = len(blocks) + 1
         blocks.append(
             "\n".join(
                 [
                     str(index),
                     f"{format_srt_timestamp(segment.start)} --> {format_srt_timestamp(segment.end)}",
-                    segment.text,
+                    text,
                 ]
             )
         )

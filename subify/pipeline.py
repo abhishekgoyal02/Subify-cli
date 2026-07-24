@@ -2,37 +2,25 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from shutil import move
 from tempfile import TemporaryDirectory
+from time import perf_counter
 from typing import Callable
 
 from .embed import embed_subtitles
 from .errors import InputValidationError
 from .ffmpeg_utils import extract_audio
+from .models import PipelineResult
 from .package import create_result_zip
 from .srt_writer import write_srt
-from .transcribe import TranscriptSegment, transcribe_audio
+from .transcribe import DEFAULT_LANGUAGE, transcribe_audio
 
 ProgressCallback = Callable[[str, str], None]
 
-
-@dataclass(frozen=True, slots=True)
-class ProcessResult:
-    zip_path: Path
-    segments: list[TranscriptSegment]
-
-
-@dataclass(frozen=True, slots=True)
-class GenerateSRTResult:
-    srt_path: Path
-    segments: list[TranscriptSegment]
-
-
-@dataclass(frozen=True, slots=True)
-class EmbedResult:
-    video_path: Path
+ProcessResult = PipelineResult
+GenerateSRTResult = PipelineResult
+EmbedResult = PipelineResult
 
 
 def process_video(
@@ -41,7 +29,13 @@ def process_video(
     output_dir: Path | str = "output",
     progress_callback: ProgressCallback | None = None,
 ) -> ProcessResult:
-    source_video = validate_input_video(Path(video_path))
+    started_at = perf_counter()
+    source_video = _run_stage(
+        "input_validation",
+        progress_callback,
+        validate_input_video,
+        Path(video_path),
+    )
     resolved_output_dir = Path(output_dir)
 
     with TemporaryDirectory(prefix="subify-") as temp_dir_name:
@@ -64,7 +58,12 @@ def process_video(
             output_dir=resolved_output_dir,
         )
 
-    return ProcessResult(zip_path=zip_path, segments=segments)
+    return ProcessResult(
+        zip_path=zip_path,
+        segments=segments,
+        elapsed_time=_elapsed_since(started_at),
+        language=DEFAULT_LANGUAGE,
+    )
 
 
 def generate_srt(
@@ -73,7 +72,13 @@ def generate_srt(
     output_dir: Path | str = "output",
     progress_callback: ProgressCallback | None = None,
 ) -> GenerateSRTResult:
-    source_video = validate_input_video(Path(video_path))
+    started_at = perf_counter()
+    source_video = _run_stage(
+        "input_validation",
+        progress_callback,
+        validate_input_video,
+        Path(video_path),
+    )
     resolved_output_dir = Path(output_dir)
     resolved_output_dir.mkdir(parents=True, exist_ok=True)
     final_srt_path = resolved_output_dir / f"{source_video.stem}.srt"
@@ -88,7 +93,12 @@ def generate_srt(
         _run_stage("srt_generation", progress_callback, write_srt, segments, temporary_srt_path)
         move(str(temporary_srt_path), str(final_srt_path))
 
-    return GenerateSRTResult(srt_path=final_srt_path, segments=segments)
+    return GenerateSRTResult(
+        srt_path=final_srt_path,
+        segments=segments,
+        elapsed_time=_elapsed_since(started_at),
+        language=DEFAULT_LANGUAGE,
+    )
 
 
 def embed_existing_subtitles(
@@ -98,16 +108,19 @@ def embed_existing_subtitles(
     output_dir: Path | str = "output",
     progress_callback: ProgressCallback | None = None,
 ) -> EmbedResult:
-    source_video = validate_input_video(Path(video_path))
-    source_srt = validate_input_file(Path(subtitle_path), label="Subtitle file")
+    started_at = perf_counter()
+    source_video, source_srt = _run_stage(
+        "input_validation",
+        progress_callback,
+        _validate_embed_inputs,
+        Path(video_path),
+        Path(subtitle_path),
+    )
     resolved_output_dir = Path(output_dir)
     resolved_output_dir.mkdir(parents=True, exist_ok=True)
     final_video_path = resolved_output_dir / f"{source_video.stem}_subtitled.mp4"
 
-    _emit(progress_callback, "input_validation", "start")
-    _emit(progress_callback, "input_validation", "complete")
-
-    with TemporaryDirectory(prefix="subify-", dir=resolved_output_dir) as temp_dir_name:
+    with TemporaryDirectory(prefix="subify-") as temp_dir_name:
         temporary_video_path = Path(temp_dir_name) / final_video_path.name
         _run_stage(
             "subtitle_embedding",
@@ -117,13 +130,24 @@ def embed_existing_subtitles(
             source_srt,
             temporary_video_path,
         )
-        temporary_video_path.replace(final_video_path)
+        move(str(temporary_video_path), str(final_video_path))
 
-    return EmbedResult(video_path=final_video_path)
+    return EmbedResult(
+        video_path=final_video_path,
+        elapsed_time=_elapsed_since(started_at),
+        language=DEFAULT_LANGUAGE,
+    )
 
 
 def validate_input_video(video_path: Path) -> Path:
     return validate_input_file(video_path, label="Input file")
+
+
+def _validate_embed_inputs(video_path: Path, subtitle_path: Path) -> tuple[Path, Path]:
+    return (
+        validate_input_video(video_path),
+        validate_input_file(subtitle_path, label="Subtitle file"),
+    )
 
 
 def validate_input_file(file_path: Path, *, label: str) -> Path:
@@ -158,3 +182,7 @@ def _run_stage(stage: str, callback: ProgressCallback | None, function, *args, *
 def _emit(callback: ProgressCallback | None, stage: str, status: str) -> None:
     if callback is not None:
         callback(stage, status)
+
+
+def _elapsed_since(started_at: float) -> float:
+    return perf_counter() - started_at

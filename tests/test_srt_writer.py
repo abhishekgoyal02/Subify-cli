@@ -1,7 +1,7 @@
 import unittest
 
+from subify.models import TranscriptSegment
 from subify.srt_writer import format_srt_timestamp, render_srt
-from subify.transcribe import TranscriptSegment
 
 
 class SRTWriterTests(unittest.TestCase):
@@ -18,6 +18,19 @@ class SRTWriterTests(unittest.TestCase):
 
         self.assertIn("1\n00:00:00,000 --> 00:00:01,500\nFirst line", content)
         self.assertIn("2\n00:00:02,000 --> 00:00:03,000\nSecond line", content)
+
+    def test_render_srt_skips_blank_segments_and_renumbers(self) -> None:
+        content = render_srt(
+            [
+                TranscriptSegment(start=0.0, end=1.0, text="   "),
+                TranscriptSegment(start=1.0, end=2.0, text="  Visible subtitle  "),
+            ]
+        )
+
+        self.assertEqual(
+            content,
+            "1\n00:00:01,000 --> 00:00:02,000\nVisible subtitle\n",
+        )
 
 
 if __name__ == "__main__":

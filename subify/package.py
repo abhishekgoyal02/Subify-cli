@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from zipfile import ZIP_DEFLATED, ZipFile
+from zipfile import BadZipFile, ZIP_DEFLATED, ZipFile
 
 from .errors import PackagingError
 
@@ -23,7 +23,7 @@ def create_result_zip(
         with ZipFile(zip_path, "w", compression=ZIP_DEFLATED) as archive:
             archive.write(srt_path, arcname=f"{stem}.srt")
             archive.write(subtitled_video, arcname=f"{stem}_subtitled.mp4")
-    except OSError as exc:
+    except (BadZipFile, OSError, RuntimeError) as exc:
         raise PackagingError(f"Unable to create ZIP file: {exc}") from exc
 
     return zip_path

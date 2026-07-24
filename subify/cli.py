@@ -10,8 +10,8 @@ from typing import Sequence
 from . import __version__
 from .errors import SubifyError
 from .ffmpeg_utils import find_ffmpeg
+from .models import TranscriptSegment
 from .pipeline import embed_existing_subtitles, generate_srt, process_video
-from .transcribe import TranscriptSegment
 from .ui import (
     print_message,
     render_dependency_status,

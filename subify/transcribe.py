@@ -2,19 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 
 from .errors import DependencyError, TranscriptionError
+from .models import TranscriptSegment
 
 DEFAULT_LANGUAGE = "en"
-
-
-@dataclass(frozen=True, slots=True)
-class TranscriptSegment:
-    start: float
-    end: float
-    text: str
 
 
 def transcribe_audio(

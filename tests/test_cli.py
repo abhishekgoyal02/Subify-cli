@@ -5,8 +5,8 @@ from unittest.mock import patch
 
 from subify.cli import main
 from subify.errors import InputValidationError
+from subify.models import TranscriptSegment
 from subify.pipeline import EmbedResult, GenerateSRTResult, ProcessResult
-from subify.transcribe import TranscriptSegment
 
 
 class CLITests(unittest.TestCase):
