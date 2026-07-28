@@ -96,8 +96,14 @@ def build_force_style(style: SubtitleStyle = DEFAULT_SUBTITLE_STYLE) -> str:
 
 
 def select_subtitle_font(style: SubtitleStyle = DEFAULT_SUBTITLE_STYLE) -> str:
+    """Select one concrete font name for libass.
+
+    Font discovery is intentionally limited to common OS font directories and
+    filename matching. If none of the preferred fonts can be detected, libass
+    receives a generic monospace family instead of a CSS-style fallback chain.
+    """
     if style.font_name:
-        return style.font_name
+        return _single_font_name(style.font_name)
 
     available_fonts = _discover_available_font_names(_font_search_dirs())
     for font_name in style.preferred_fonts:
@@ -105,7 +111,7 @@ def select_subtitle_font(style: SubtitleStyle = DEFAULT_SUBTITLE_STYLE) -> str:
         if any(normalized in available for available in available_fonts):
             return font_name
 
-    return style.fallback_font
+    return _single_font_name(style.fallback_font)
 
 
 def _escape_subtitle_path(path: Path) -> str:
@@ -117,6 +123,10 @@ def _format_ass_number(value: float) -> str:
     if value.is_integer():
         return str(int(value))
     return str(value)
+
+
+def _single_font_name(font_name: str) -> str:
+    return font_name.split(",", maxsplit=1)[0].strip() or FALLBACK_SUBTITLE_FONT
 
 
 def _discover_available_font_names(search_dirs: Iterable[Path]) -> set[str]:

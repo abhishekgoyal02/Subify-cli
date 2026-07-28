@@ -3,10 +3,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from subify.errors import DependencyError, EmbeddingError, FFmpegError
+from subify.embed import DEFAULT_SUBTITLE_STYLE
 from subify.embed import SubtitleStyle
 from subify.embed import build_embed_subtitles_args
 from subify.embed import build_force_style
 from subify.embed import embed_subtitles
+from subify.embed import select_subtitle_font
 
 
 class EmbedTests(unittest.TestCase):
@@ -23,26 +25,76 @@ class EmbedTests(unittest.TestCase):
         self.assertTrue(any("subtitles=captions.srt" in arg for arg in args))
         self.assertEqual(args[-1], "subtitled.mp4")
 
-    def test_subtitle_style_is_modern_and_minimal(self) -> None:
+    @patch("subify.embed._discover_available_font_names", return_value={"jetbrainsmonoregular"})
+    def test_subtitle_style_is_modern_and_minimal(self, _discover_fonts) -> None:
         style = build_force_style()
 
-        self.assertIn("FontName=JetBrains Mono", style)
-        self.assertIn("FontSize=18", style)
-        self.assertIn("PrimaryColour=&H00FFFFFF", style)
-        self.assertIn("OutlineColour=&H00000000", style)
-        self.assertIn("BorderStyle=1", style)
-        self.assertIn("Outline=1", style)
-        self.assertIn("Shadow=0", style)
-        self.assertIn("Bold=0", style)
-        self.assertIn("Italic=0", style)
-        self.assertIn("Alignment=2", style)
-        self.assertIn("MarginV=36", style)
+        self.assertEqual(
+            style,
+            "Fontname=JetBrains Mono,"
+            "FontSize=18,"
+            "PrimaryColour=&H00FFFFFF,"
+            "OutlineColour=&H00000000,"
+            "BorderStyle=1,"
+            "Outline=1,"
+            "Shadow=0,"
+            "Bold=0,"
+            "Italic=0,"
+            "Alignment=2,"
+            "MarginL=24,"
+            "MarginR=24,"
+            "MarginV=36",
+        )
 
     def test_subtitle_style_caps_font_size_at_18(self) -> None:
         style = build_force_style(SubtitleStyle(font_size=24))
 
         self.assertIn("FontSize=18", style)
         self.assertNotIn("FontSize=24", style)
+
+    def test_subtitle_style_uses_one_concrete_font_not_css_fallback_chain(self) -> None:
+        style = build_force_style(SubtitleStyle(font_name="Fira Code, monospace"))
+
+        font_value = _force_style_value(style, "Fontname")
+
+        self.assertEqual(font_value, "Fira Code")
+        self.assertNotIn(",", font_value)
+
+    def test_subtitle_style_remains_minimalist(self) -> None:
+        style = build_force_style(SubtitleStyle(font_name="JetBrains Mono"))
+
+        values = _force_style_values(style)
+
+        self.assertEqual(values["PrimaryColour"], "&H00FFFFFF")
+        self.assertEqual(values["OutlineColour"], "&H00000000")
+        self.assertEqual(values["BorderStyle"], "1")
+        self.assertEqual(values["Outline"], "1")
+        self.assertEqual(values["Shadow"], "0")
+        self.assertEqual(values["Bold"], "0")
+        self.assertEqual(values["Italic"], "0")
+        self.assertEqual(values["Alignment"], "2")
+        self.assertLessEqual(int(values["FontSize"]), 18)
+
+    @patch("subify.embed._discover_available_font_names")
+    def test_font_selection_uses_first_detected_preferred_font(self, discover_fonts) -> None:
+        discover_fonts.return_value = {"firacoderegular", "sourcecodeproregular"}
+
+        self.assertEqual(select_subtitle_font(), "Fira Code")
+
+    @patch("subify.embed._discover_available_font_names", return_value=set())
+    def test_font_selection_falls_back_to_generic_monospace(self, _discover_fonts) -> None:
+        self.assertEqual(select_subtitle_font(), "monospace")
+
+    def test_default_subtitle_style_centralizes_minimal_embedding_values(self) -> None:
+        self.assertEqual(DEFAULT_SUBTITLE_STYLE.font_size, 18)
+        self.assertEqual(DEFAULT_SUBTITLE_STYLE.primary_color, "&H00FFFFFF")
+        self.assertEqual(DEFAULT_SUBTITLE_STYLE.outline_color, "&H00000000")
+        self.assertEqual(DEFAULT_SUBTITLE_STYLE.outline_width, 1.0)
+        self.assertEqual(DEFAULT_SUBTITLE_STYLE.shadow, 0.0)
+        self.assertEqual(DEFAULT_SUBTITLE_STYLE.bold, 0)
+        self.assertEqual(DEFAULT_SUBTITLE_STYLE.italic, 0)
+        self.assertEqual(DEFAULT_SUBTITLE_STYLE.alignment, 2)
+        self.assertEqual(DEFAULT_SUBTITLE_STYLE.margin_vertical, 36)
 
     def test_embed_filter_applies_centralized_force_style(self) -> None:
         args = build_embed_subtitles_args(
@@ -69,6 +121,14 @@ class EmbedTests(unittest.TestCase):
 
         with self.assertRaises(DependencyError):
             embed_subtitles(Path("input.mp4"), Path("captions.srt"), Path("subtitled.mp4"))
+
+
+def _force_style_values(style: str) -> dict[str, str]:
+    return dict(part.split("=", maxsplit=1) for part in style.split(","))
+
+
+def _force_style_value(style: str, key: str) -> str:
+    return _force_style_values(style)[key]
 
 
 if __name__ == "__main__":
