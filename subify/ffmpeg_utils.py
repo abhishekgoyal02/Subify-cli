@@ -17,6 +17,13 @@ def find_ffmpeg() -> str:
     return ffmpeg_path
 
 
+def find_ffprobe() -> str:
+    ffprobe_path = shutil.which("ffprobe")
+    if ffprobe_path is None:
+        raise DependencyError("FFprobe is not installed or is not on PATH. Install FFmpeg first.")
+    return ffprobe_path
+
+
 def run_ffmpeg(args: Sequence[str], *, description: str) -> None:
     command = [find_ffmpeg(), *args]
     try:
@@ -33,6 +40,43 @@ def run_ffmpeg(args: Sequence[str], *, description: str) -> None:
     if completed.returncode != 0:
         detail = completed.stderr.strip() or completed.stdout.strip()
         raise FFmpegError(f"FFmpeg failed while {description}: {detail}")
+
+
+def probe_video_duration(source_video: Path) -> float:
+    command = [
+        find_ffprobe(),
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        str(source_video),
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except OSError as exc:
+        raise FFmpegError(f"Unable to run FFprobe while reading video duration: {exc}") from exc
+
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip()
+        raise FFmpegError(f"FFprobe failed while reading video duration: {detail}")
+
+    try:
+        duration = float(completed.stdout.strip())
+    except ValueError as exc:
+        raise FFmpegError("FFprobe did not return a readable video duration.") from exc
+
+    if duration < 0:
+        raise FFmpegError("FFprobe returned an invalid negative video duration.")
+
+    return duration
 
 
 def build_extract_audio_args(source_video: Path, output_audio: Path) -> list[str]:

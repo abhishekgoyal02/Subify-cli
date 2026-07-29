@@ -70,8 +70,8 @@ def embed_subtitles(source_video: Path, srt_path: Path, output_video: Path) -> N
 
 def build_subtitle_filter(srt_path: Path, style: SubtitleStyle = DEFAULT_SUBTITLE_STYLE) -> str:
     return (
-        f"subtitles={_escape_subtitle_path(srt_path)}:"
-        f"force_style='{build_force_style(style)}'"
+        f"subtitles=filename={_escape_filter_option_value(_subtitle_path_for_filter(srt_path))}:"
+        f"force_style={_escape_filter_option_value(build_force_style(style))}"
     )
 
 
@@ -114,9 +114,20 @@ def select_subtitle_font(style: SubtitleStyle = DEFAULT_SUBTITLE_STYLE) -> str:
     return _single_font_name(style.fallback_font)
 
 
-def _escape_subtitle_path(path: Path) -> str:
-    text = str(path).replace("\\", "/")
-    return text.replace(":", "\\:").replace("'", "\\'")
+def _subtitle_path_for_filter(path: Path) -> str:
+    return str(path).replace("\\", "/")
+
+
+def _escape_filter_option_value(value: str) -> str:
+    first_level = _escape_filter_chars(value, "\\':")
+    return _escape_filter_chars(first_level, "\\'[]=;,")
+
+
+def _escape_filter_chars(value: str, special_chars: str) -> str:
+    return "".join(
+        f"\\{character}" if character in special_chars else character
+        for character in value
+    )
 
 
 def _format_ass_number(value: float) -> str:

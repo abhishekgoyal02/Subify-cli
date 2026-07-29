@@ -18,6 +18,7 @@ Implemented:
 - `python -m subify` package entry point
 - installable `subify` console command entry point
 - `process`, `generate-srt`, and `embed` command structure
+- interactive shell mode for no-argument `subify`
 - reusable pipeline API in `subify.pipeline`
 - FFmpeg helper boundaries
 - Faster-Whisper transcription boundary configured for English speech recognition
@@ -25,6 +26,7 @@ Implemented:
 - subtitle embedding command construction
 - ZIP packaging
 - temporary working directory cleanup through `tempfile.TemporaryDirectory`
+- structured pipeline result metadata for future integrations
 - architecture-focused `unittest` coverage
 
 Planned:
@@ -39,10 +41,12 @@ Planned:
 ## Architecture
 
 The CLI is intentionally thin. It parses arguments, displays user-facing messages, and calls the core pipeline.
+No-argument invocation enters `subify.shell`, which is also only a command router and UI layer.
 
 ```text
-CLI
+CLI / Shell
   -> subify.pipeline.process_video()
+      -> shared models
       -> FFmpeg audio extraction
       -> Faster-Whisper transcription
       -> SRT generation
@@ -55,9 +59,11 @@ Additional core entry points support SRT-only generation and embedding an existi
 - `subify.pipeline.generate_srt()`
 - `subify.pipeline.embed_existing_subtitles()`
 
-The future Telegram bot should call these pipeline APIs directly rather than shelling out to the CLI.
+These APIs return structured result objects with output paths, transcript segments, elapsed time, language, and warnings. The future Telegram bot should call these pipeline APIs directly rather than shelling out to the CLI.
 
 ## CLI Usage
+
+Subify supports direct command mode for scripts and repeatable terminal usage:
 
 ```powershell
 subify --help
@@ -85,6 +91,37 @@ subify generate-srt "lesson.mp4" --show-transcript
 ```
 
 The transcript is hidden by default so long videos do not flood the terminal.
+
+## Interactive Shell Mode
+
+Run `subify` with no arguments to open the interactive shell:
+
+```powershell
+subify
+```
+
+Inside the shell, use the same processing commands without repeating the `subify` prefix:
+
+```text
+subify > help
+subify > process "lesson.mp4"
+subify > generate-srt "lesson.mp4"
+subify > embed "lesson.mp4" "lesson.srt"
+subify > exit
+```
+
+Available shell commands:
+
+- `help`
+- `process <video>`
+- `generate-srt <video>`
+- `embed <video> <srt>`
+- `version`
+- `history`
+- `clear` / `cls`
+- `exit` / `quit`
+
+Shell mode is a persistent command router around the same Subify pipeline used by direct command mode. It does not change transcription, SRT generation, subtitle embedding, ZIP packaging, or output behavior.
 
 ## Output
 

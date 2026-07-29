@@ -103,6 +103,42 @@ def render_dependency_status(*, ffmpeg_ready: bool, whisper_ready: bool, include
         print(f"Faster-Whisper {'Ready' if whisper_ready else 'Missing'}")
 
 
+def render_shell_help() -> None:
+    lines = [
+        "Interactive shell commands:",
+        "  process <video>",
+        "  generate-srt <video>",
+        "  embed <video> <srt>",
+        "  /help",
+        "  /version",
+        "  /clear",
+        "  /exit",
+        "",
+        "Type / to see shell commands.",
+    ]
+    print_message("\n".join(lines))
+
+
+def render_shell_error(message: str) -> None:
+    print_message(f"[red]{message}[/]")
+
+
+def render_unknown_shell_command(command: str) -> None:
+    render_shell_error(f"Unknown command: {command}\nType /help for available commands.")
+
+
+def render_shell_exit() -> None:
+    print_message("Leaving Subify shell.")
+
+
+def render_shell_suggestions(commands: tuple[str, ...]) -> None:
+    print_message("  ".join(commands))
+
+
+def clear_terminal() -> None:
+    print("\033[2J\033[H", end="")
+
+
 def render_stage(stage: str, status: str) -> None:
     if status == "start":
         print_message(f"[dim]  -[/] {stage}")

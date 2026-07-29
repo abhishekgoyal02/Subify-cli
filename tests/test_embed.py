@@ -7,6 +7,7 @@ from subify.embed import DEFAULT_SUBTITLE_STYLE
 from subify.embed import SubtitleStyle
 from subify.embed import build_embed_subtitles_args
 from subify.embed import build_force_style
+from subify.embed import build_subtitle_filter
 from subify.embed import embed_subtitles
 from subify.embed import select_subtitle_font
 
@@ -22,8 +23,42 @@ class EmbedTests(unittest.TestCase):
         self.assertEqual(args[0], "-y")
         self.assertIn("input.mp4", args)
         self.assertIn("-vf", args)
-        self.assertTrue(any("subtitles=captions.srt" in arg for arg in args))
+        self.assertTrue(any("subtitles=filename=captions.srt" in arg for arg in args))
         self.assertEqual(args[-1], "subtitled.mp4")
+
+    def test_subtitle_filter_escapes_special_character_paths(self) -> None:
+        filenames = [
+            "My Video.srt",
+            "5. [Dart] Functions - Part 1.srt",
+            "video's subtitle.srt",
+            "video (1080p).srt",
+            "こんにちは.srt",
+            "file,name=sample.srt",
+        ]
+
+        for filename in filenames:
+            with self.subTest(filename=filename):
+                subtitle_filter = build_subtitle_filter(Path(filename))
+
+                self.assertTrue(subtitle_filter.startswith("subtitles=filename="))
+                self.assertIn(":force_style=", subtitle_filter)
+
+    def test_subtitle_filter_handles_windows_paths(self) -> None:
+        subtitle_filter = build_subtitle_filter(
+            Path(r"C:\Users\Aparna goyal\Downloads\5. [Dart] Functions - Part 1.srt")
+        )
+
+        self.assertIn("C\\\\:/Users/Aparna goyal/Downloads/5. \\[Dart\\] Functions - Part 1.srt", subtitle_filter)
+
+    def test_subtitle_filter_escapes_apostrophes_inside_quoted_filename(self) -> None:
+        subtitle_filter = build_subtitle_filter(Path("video's subtitle.srt"))
+
+        self.assertIn("video\\\\\\'s subtitle.srt", subtitle_filter)
+
+    def test_subtitle_filter_escapes_commas_and_equals_signs(self) -> None:
+        subtitle_filter = build_subtitle_filter(Path("file,name=sample.srt"))
+
+        self.assertIn("file\\,name\\=sample.srt", subtitle_filter)
 
     @patch("subify.embed._discover_available_font_names", return_value={"jetbrainsmonoregular"})
     def test_subtitle_style_is_modern_and_minimal(self, _discover_fonts) -> None:
@@ -96,7 +131,8 @@ class EmbedTests(unittest.TestCase):
         self.assertEqual(DEFAULT_SUBTITLE_STYLE.alignment, 2)
         self.assertEqual(DEFAULT_SUBTITLE_STYLE.margin_vertical, 36)
 
-    def test_embed_filter_applies_centralized_force_style(self) -> None:
+    @patch("subify.embed._discover_available_font_names", return_value=set())
+    def test_embed_filter_applies_centralized_force_style(self, _discover_fonts) -> None:
         args = build_embed_subtitles_args(
             Path("input.mp4"),
             Path("captions.srt"),
@@ -105,8 +141,9 @@ class EmbedTests(unittest.TestCase):
 
         video_filter = args[args.index("-vf") + 1]
 
-        self.assertIn("force_style='", video_filter)
-        self.assertIn(build_force_style(), video_filter)
+        self.assertIn("force_style=", video_filter)
+        self.assertIn("Fontname\\=monospace", video_filter)
+        self.assertIn("FontSize\\=18", video_filter)
 
     @patch("subify.embed.run_ffmpeg")
     def test_embed_wraps_ffmpeg_failures(self, run_ffmpeg) -> None:

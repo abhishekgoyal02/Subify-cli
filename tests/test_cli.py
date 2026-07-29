@@ -1,7 +1,7 @@
 import unittest
 from io import StringIO
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from subify.cli import main
 from subify.errors import InputValidationError
@@ -10,12 +10,25 @@ from subify.pipeline import EmbedResult, GenerateSRTResult, ProcessResult
 
 
 class CLITests(unittest.TestCase):
-    @patch("subify.cli.render_welcome")
-    def test_no_command_renders_welcome_screen(self, render_welcome) -> None:
+    @patch("subify.cli.start_shell", return_value=0)
+    def test_no_command_enters_shell_mode(self, start_shell) -> None:
         exit_code = main([])
 
         self.assertEqual(exit_code, 0)
-        render_welcome.assert_called_once()
+        start_shell.assert_called_once()
+        self.assertTrue(callable(start_shell.call_args.args[0]))
+
+    @patch("subify.cli.run_command", return_value=0)
+    @patch("subify.cli.start_shell")
+    def test_shell_reuses_public_command_execution_path(self, start_shell, run_command) -> None:
+        def run_shell(dispatcher):
+            dispatcher(["process", "video.mp4"])
+            return 0
+
+        start_shell.side_effect = run_shell
+
+        self.assertEqual(main([]), 0)
+        run_command.assert_called_once_with(["process", "video.mp4"])
 
     @patch("subify.ui.console", None)
     def test_plain_welcome_contains_subify_and_version(self) -> None:
@@ -35,14 +48,14 @@ class CLITests(unittest.TestCase):
             main(["--version"])
         self.assertEqual(context.exception.code, 0)
 
-    @patch("subify.cli.render_welcome")
-    def test_version_does_not_render_welcome(self, render_welcome) -> None:
+    @patch("subify.shell.start_shell")
+    def test_version_does_not_start_shell(self, start_shell) -> None:
         with self.assertRaises(SystemExit):
             main(["--version"])
 
-        render_welcome.assert_not_called()
+        start_shell.assert_not_called()
 
-    @patch("subify.cli.process_video")
+    @patch("subify.commands.process_video")
     def test_process_calls_pipeline(self, process_video) -> None:
         process_video.return_value = ProcessResult(zip_path=Path("output/video_subify.zip"), segments=[])
 
@@ -53,15 +66,36 @@ class CLITests(unittest.TestCase):
         self.assertEqual(call.args[0], Path("video.mp4"))
         self.assertEqual(call.kwargs["output_dir"], Path("output"))
 
-    @patch("subify.cli.process_video")
+    @patch("subify.ui.console", None)
+    @patch("subify.commands.process_video")
     def test_process_maps_pipeline_error_to_nonzero_exit(self, process_video) -> None:
         process_video.side_effect = InputValidationError("missing input")
+        stderr = StringIO()
 
-        exit_code = main(["process", "missing.mp4"])
+        with patch("sys.stderr", stderr):
+            exit_code = main(["process", "missing.mp4"])
 
         self.assertEqual(exit_code, 1)
+        self.assertIn("missing input", stderr.getvalue())
+        self.assertNotIn("Traceback", stderr.getvalue())
 
-    @patch("subify.cli.generate_srt")
+    @patch("subify.commands.render_error", side_effect=RuntimeError("render failed"))
+    @patch("subify.commands.process_video")
+    def test_process_error_reporting_falls_back_if_renderer_fails(
+        self,
+        process_video,
+        _render_error,
+    ) -> None:
+        process_video.side_effect = InputValidationError("missing [input]")
+        stderr = StringIO()
+
+        with patch("sys.stderr", stderr):
+            exit_code = main(["process", "missing.mp4"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("missing [input]", stderr.getvalue())
+
+    @patch("subify.commands.generate_srt")
     def test_generate_srt_calls_pipeline_with_path_containing_spaces(self, generate_srt) -> None:
         generate_srt.return_value = GenerateSRTResult(
             srt_path=Path("output/my lesson.srt"),
@@ -75,7 +109,7 @@ class CLITests(unittest.TestCase):
         self.assertEqual(call.args[0], Path("my lesson.mp4"))
         self.assertEqual(call.kwargs["output_dir"], Path("output"))
 
-    @patch("subify.cli.embed_existing_subtitles")
+    @patch("subify.commands.embed_existing_subtitles")
     def test_embed_calls_pipeline_without_transcription(self, embed_existing_subtitles) -> None:
         embed_existing_subtitles.return_value = EmbedResult(
             video_path=Path("output/lesson_subtitled.mp4")
@@ -87,12 +121,12 @@ class CLITests(unittest.TestCase):
         call = embed_existing_subtitles.call_args
         self.assertEqual(call.args[:2], (Path("lesson.mp4"), Path("lesson.srt")))
 
-    @patch("subify.cli._print_dependency_status")
-    @patch("subify.cli.process_video")
-    @patch("subify.cli.render_welcome")
+    @patch("subify.commands._print_dependency_status")
+    @patch("subify.commands.process_video")
+    @patch("subify.shell.start_shell")
     def test_welcome_not_rendered_for_process(
         self,
-        render_welcome,
+        start_shell,
         process_video,
         _print_dependency_status,
     ) -> None:
@@ -101,10 +135,10 @@ class CLITests(unittest.TestCase):
         exit_code = main(["process", "video.mp4"])
 
         self.assertEqual(exit_code, 0)
-        render_welcome.assert_not_called()
+        start_shell.assert_not_called()
 
-    @patch("subify.cli._print_dependency_status")
-    @patch("subify.cli.process_video")
+    @patch("subify.commands._print_dependency_status")
+    @patch("subify.commands.process_video")
     def test_process_progress_stages_are_command_specific(
         self,
         process_video,
@@ -134,8 +168,8 @@ class CLITests(unittest.TestCase):
         self.assertTrue(any("Subtitle embedding" in message for message in observed))
         self.assertTrue(any("ZIP packaging" in message for message in observed))
 
-    @patch("subify.cli._print_dependency_status")
-    @patch("subify.cli.generate_srt")
+    @patch("subify.commands._print_dependency_status")
+    @patch("subify.commands.generate_srt")
     def test_generate_srt_does_not_show_embedding_stage(
         self,
         generate_srt,
@@ -156,8 +190,8 @@ class CLITests(unittest.TestCase):
         self.assertIn("SRT generation", messages)
         self.assertNotIn("Subtitle embedding", messages)
 
-    @patch("subify.cli._print_dependency_status")
-    @patch("subify.cli.process_video")
+    @patch("subify.commands._print_dependency_status")
+    @patch("subify.commands.process_video")
     def test_transcript_hidden_by_default(
         self,
         process_video,
@@ -175,8 +209,8 @@ class CLITests(unittest.TestCase):
         messages = "\n".join(call.args[0] for call in print_message.call_args_list)
         self.assertNotIn("Hidden transcript", messages)
 
-    @patch("subify.cli._print_dependency_status")
-    @patch("subify.cli.process_video")
+    @patch("subify.commands._print_dependency_status")
+    @patch("subify.commands.process_video")
     def test_show_transcript_prints_segments(
         self,
         process_video,
@@ -205,21 +239,18 @@ class CLITests(unittest.TestCase):
         self.assertIn("generate-srt", help_output)
         self.assertIn("embed", help_output)
 
-    @patch("subify.cli.render_welcome")
-    def test_help_does_not_render_welcome(self, render_welcome) -> None:
+    @patch("subify.shell.start_shell")
+    def test_help_does_not_start_shell(self, start_shell) -> None:
         with patch("sys.stdout", StringIO()), self.assertRaises(SystemExit):
             main(["--help"])
 
-        render_welcome.assert_not_called()
+        start_shell.assert_not_called()
 
     @patch("subify.ui.console", None)
-    @patch("subify.cli.find_ffmpeg")
-    @patch("subify.cli.importlib.util.find_spec")
-    def test_dependency_status_reflects_runtime_detection(self, find_spec, find_ffmpeg) -> None:
-        from subify.cli import _print_dependency_status
+    @patch("subify.commands.dependency_status", return_value=(True, True))
+    def test_dependency_status_reflects_runtime_detection(self, _dependency_status) -> None:
+        from subify.commands import _print_dependency_status
 
-        find_ffmpeg.return_value = "ffmpeg"
-        find_spec.return_value = object()
         stdout = StringIO()
 
         with patch("sys.stdout", stdout):
@@ -228,6 +259,19 @@ class CLITests(unittest.TestCase):
         output = stdout.getvalue()
         self.assertIn("FFmpeg         Ready", output)
         self.assertIn("Faster-Whisper Ready", output)
+
+    @patch("subify.ui.console", None)
+    @patch("subify.commands._print_dependency_status")
+    @patch("subify.commands.process_video", side_effect=RuntimeError("boom"))
+    def test_process_hides_unexpected_tracebacks(self, _process_video, _print_dependency_status) -> None:
+        stderr = StringIO()
+
+        with patch("sys.stderr", stderr):
+            exit_code = main(["process", "video.mp4"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("Unexpected error. Processing aborted.", stderr.getvalue())
+        self.assertNotIn("Traceback", stderr.getvalue())
 
 
 if __name__ == "__main__":
