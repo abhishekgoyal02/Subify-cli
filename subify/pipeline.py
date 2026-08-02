@@ -20,7 +20,8 @@ from .package import create_result_zip
 from .srt_writer import write_srt
 from .transcribe import DEFAULT_LANGUAGE, transcribe_audio
 
-ProgressCallback = Callable[[str, str], None]
+ProgressEvent = tuple[str, str]
+ProgressCallback = Callable[[ProgressEvent], None]
 
 ProcessResult = PipelineResult
 GenerateSRTResult = PipelineResult
@@ -75,7 +76,7 @@ def process_video(
         )
 
     return ProcessResult(
-        zip_path=zip_path,
+        zip_path=_normalize_path(zip_path),
         segments=segments,
         elapsed_time=_elapsed_since(started_at),
         language=DEFAULT_LANGUAGE,
@@ -120,7 +121,7 @@ def generate_srt(
             raise SRTError(f"Unable to write final SRT file: {exc}") from exc
 
     return GenerateSRTResult(
-        srt_path=final_srt_path,
+        srt_path=_normalize_path(final_srt_path),
         segments=segments,
         elapsed_time=_elapsed_since(started_at),
         language=DEFAULT_LANGUAGE,
@@ -169,7 +170,7 @@ def embed_existing_subtitles(
             raise EmbeddingError(f"Unable to write subtitled video: {exc}") from exc
 
     return EmbedResult(
-        video_path=final_video_path,
+        video_path=_normalize_path(final_video_path),
         elapsed_time=_elapsed_since(started_at),
         language=DEFAULT_LANGUAGE,
     )
@@ -283,12 +284,18 @@ def validate_output_and_temporary_space(source_video: Path, output_dir: Path) ->
 def validate_output_directory(output_dir: Path) -> Path:
     try:
         resolved = output_dir.expanduser().resolve(strict=False)
+        if resolved.exists() and not resolved.is_dir():
+            raise InputValidationError(
+                f"Output path is not a directory and cannot be used: {resolved}"
+            )
         resolved.mkdir(parents=True, exist_ok=True)
+    except InputValidationError:
+        raise
     except OSError as exc:
         raise InputValidationError(f"Output directory cannot be created: {output_dir}") from exc
 
     if not resolved.is_dir():
-        raise InputValidationError(f"Output path is not a directory: {resolved}")
+        raise InputValidationError(f"Output path is not a directory and cannot be used: {resolved}")
 
     marker = resolved / ".subify-write-test"
     try:
@@ -337,8 +344,14 @@ def _run_stage(stage: str, callback: ProgressCallback | None, function, *args, *
 
 def _emit(callback: ProgressCallback | None, stage: str, status: str) -> None:
     if callback is not None:
-        callback(stage, status)
+        callback((stage, status))
 
 
 def _elapsed_since(started_at: float) -> float:
     return perf_counter() - started_at
+
+
+def _normalize_path(path: Path | None) -> Path | None:
+    if path is None:
+        return None
+    return path.expanduser().resolve(strict=False)

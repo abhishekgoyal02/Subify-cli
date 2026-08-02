@@ -25,7 +25,7 @@ class PackageTests(unittest.TestCase):
                 output_dir=output_dir,
             )
 
-            self.assertEqual(zip_path, output_dir / "lesson_subify.zip")
+            self.assertEqual(zip_path, (output_dir / "lesson_subify.zip").resolve(strict=False))
             with ZipFile(zip_path) as archive:
                 self.assertEqual(
                     sorted(archive.namelist()),

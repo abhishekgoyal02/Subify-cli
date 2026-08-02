@@ -101,7 +101,7 @@ class PipelineTests(unittest.TestCase):
 
             result = process_video(source, output_dir=output_dir)
 
-            self.assertEqual(result.zip_path, output_dir / "lesson_subify.zip")
+            self.assertEqual(result.zip_path, (output_dir / "lesson_subify.zip").resolve(strict=False))
             self.assertEqual(result.language, "en")
             self.assertGreaterEqual(result.elapsed_time, 0.0)
             self.assertEqual(len(observed_temp_paths), 1)
@@ -140,7 +140,7 @@ class PipelineTests(unittest.TestCase):
 
             result = generate_srt(source, output_dir=output_dir)
 
-            self.assertEqual(result.srt_path, output_dir / "lesson with spaces.srt")
+            self.assertEqual(result.srt_path, (output_dir / "lesson with spaces.srt").resolve(strict=False))
             self.assertEqual(result.language, "en")
             self.assertGreaterEqual(result.elapsed_time, 0.0)
             self.assertTrue(result.srt_path.exists())
@@ -170,7 +170,7 @@ class PipelineTests(unittest.TestCase):
 
             result = embed_existing_subtitles(source, srt, output_dir=output_dir)
 
-            self.assertEqual(result.video_path, output_dir / "lesson_subtitled.mp4")
+            self.assertEqual(result.video_path, (output_dir / "lesson_subtitled.mp4").resolve(strict=False))
             self.assertEqual(result.language, "en")
             self.assertGreaterEqual(result.elapsed_time, 0.0)
             self.assertTrue(result.video_path.exists())

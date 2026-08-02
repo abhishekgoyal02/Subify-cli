@@ -79,7 +79,7 @@ class CLITests(unittest.TestCase):
         self.assertIn("missing input", stderr.getvalue())
         self.assertNotIn("Traceback", stderr.getvalue())
 
-    @patch("subify.commands.render_error", side_effect=RuntimeError("render failed"))
+    @patch("subify.commands.ui.render_error", side_effect=RuntimeError("render failed"))
     @patch("subify.commands.process_video")
     def test_process_error_reporting_falls_back_if_renderer_fails(
         self,
@@ -154,8 +154,8 @@ class CLITests(unittest.TestCase):
                 "subtitle_embedding",
                 "zip_packaging",
             ]:
-                progress_callback(stage, "start")
-                progress_callback(stage, "complete")
+                progress_callback((stage, "start"))
+                progress_callback((stage, "complete"))
             return ProcessResult(zip_path=Path("output/video_subify.zip"), segments=[])
 
         process_video.side_effect = run_pipeline
@@ -177,8 +177,8 @@ class CLITests(unittest.TestCase):
     ) -> None:
         def run_pipeline(_video_path: Path, *, output_dir: Path, progress_callback):
             for stage in ["audio_extraction", "english_transcription", "srt_generation"]:
-                progress_callback(stage, "start")
-                progress_callback(stage, "complete")
+                progress_callback((stage, "start"))
+                progress_callback((stage, "complete"))
             return GenerateSRTResult(srt_path=Path("output/video.srt"), segments=[])
 
         generate_srt.side_effect = run_pipeline

@@ -26,4 +26,4 @@ def create_result_zip(
     except (BadZipFile, OSError, RuntimeError) as exc:
         raise PackagingError(f"Unable to create ZIP file: {exc}") from exc
 
-    return zip_path
+    return zip_path.expanduser().resolve(strict=False)
