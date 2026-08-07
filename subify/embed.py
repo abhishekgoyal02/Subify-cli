@@ -27,18 +27,18 @@ class SubtitleStyle:
     font_name: str | None = None
     preferred_fonts: tuple[str, ...] = PREFERRED_SUBTITLE_FONTS
     fallback_font: str = FALLBACK_SUBTITLE_FONT
-    font_size: int = 15
-    primary_color: str = "&H00F2F2F2"
-    outline_color: str = "&H00000000"
+    font_size: int = 10
+    primary_color: str = "&H00E8E8E8"
+    outline_color: str = "&H80444444"
     border_style: int = 1
-    outline_width: float = 0.8
+    outline_width: float = 0.4
     shadow: float = 0.0
     bold: int = 0
     italic: int = 0
     alignment: int = 2
-    margin_left: int = 28
-    margin_right: int = 28
-    margin_vertical: int = 30
+    margin_left: int = 12
+    margin_right: int = 12
+    margin_vertical: int = 12
 
 
 DEFAULT_SUBTITLE_STYLE = SubtitleStyle()
@@ -79,7 +79,7 @@ def build_force_style(style: SubtitleStyle = DEFAULT_SUBTITLE_STYLE) -> str:
     font_name = select_subtitle_font(style)
     values = {
         "Fontname": font_name,
-        "FontSize": str(min(style.font_size, 16)),
+        "FontSize": str(min(style.font_size, 10)),
         "PrimaryColour": style.primary_color,
         "OutlineColour": style.outline_color,
         "BorderStyle": str(style.border_style),

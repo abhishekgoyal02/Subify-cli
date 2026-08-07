@@ -67,24 +67,24 @@ class EmbedTests(unittest.TestCase):
         self.assertEqual(
             style,
             "Fontname=JetBrains Mono,"
-            "FontSize=15,"
-            "PrimaryColour=&H00F2F2F2,"
-            "OutlineColour=&H00000000,"
+            "FontSize=10,"
+            "PrimaryColour=&H00E8E8E8,"
+            "OutlineColour=&H80444444,"
             "BorderStyle=1,"
-            "Outline=0.8,"
+            "Outline=0.4,"
             "Shadow=0,"
             "Bold=0,"
             "Italic=0,"
             "Alignment=2,"
-            "MarginL=28,"
-            "MarginR=28,"
-            "MarginV=30",
+            "MarginL=12,"
+            "MarginR=12,"
+            "MarginV=12",
         )
 
-    def test_subtitle_style_caps_font_size_at_16(self) -> None:
+    def test_subtitle_style_caps_font_size_at_10(self) -> None:
         style = build_force_style(SubtitleStyle(font_size=24))
 
-        self.assertIn("FontSize=16", style)
+        self.assertIn("FontSize=10", style)
         self.assertNotIn("FontSize=24", style)
 
     def test_subtitle_style_uses_one_concrete_font_not_css_fallback_chain(self) -> None:
@@ -100,15 +100,18 @@ class EmbedTests(unittest.TestCase):
 
         values = _force_style_values(style)
 
-        self.assertEqual(values["PrimaryColour"], "&H00F2F2F2")
-        self.assertEqual(values["OutlineColour"], "&H00000000")
+        self.assertEqual(values["PrimaryColour"], "&H00E8E8E8")
+        self.assertEqual(values["OutlineColour"], "&H80444444")
         self.assertEqual(values["BorderStyle"], "1")
-        self.assertEqual(values["Outline"], "0.8")
+        self.assertEqual(values["Outline"], "0.4")
         self.assertEqual(values["Shadow"], "0")
         self.assertEqual(values["Bold"], "0")
         self.assertEqual(values["Italic"], "0")
         self.assertEqual(values["Alignment"], "2")
-        self.assertLessEqual(int(values["FontSize"]), 16)
+        self.assertLessEqual(int(values["FontSize"]), 10)
+        self.assertEqual(int(values["MarginL"]), 12)
+        self.assertEqual(int(values["MarginR"]), 12)
+        self.assertEqual(int(values["MarginV"]), 12)
 
     @patch("subify.embed._discover_available_font_names")
     def test_font_selection_uses_first_detected_preferred_font(self, discover_fonts) -> None:
@@ -121,15 +124,17 @@ class EmbedTests(unittest.TestCase):
         self.assertEqual(select_subtitle_font(), "Consolas")
 
     def test_default_subtitle_style_centralizes_minimal_embedding_values(self) -> None:
-        self.assertEqual(DEFAULT_SUBTITLE_STYLE.font_size, 15)
-        self.assertEqual(DEFAULT_SUBTITLE_STYLE.primary_color, "&H00F2F2F2")
-        self.assertEqual(DEFAULT_SUBTITLE_STYLE.outline_color, "&H00000000")
-        self.assertEqual(DEFAULT_SUBTITLE_STYLE.outline_width, 0.8)
+        self.assertEqual(DEFAULT_SUBTITLE_STYLE.font_size, 10)
+        self.assertEqual(DEFAULT_SUBTITLE_STYLE.primary_color, "&H00E8E8E8")
+        self.assertEqual(DEFAULT_SUBTITLE_STYLE.outline_color, "&H80444444")
+        self.assertEqual(DEFAULT_SUBTITLE_STYLE.outline_width, 0.4)
         self.assertEqual(DEFAULT_SUBTITLE_STYLE.shadow, 0.0)
         self.assertEqual(DEFAULT_SUBTITLE_STYLE.bold, 0)
         self.assertEqual(DEFAULT_SUBTITLE_STYLE.italic, 0)
         self.assertEqual(DEFAULT_SUBTITLE_STYLE.alignment, 2)
-        self.assertEqual(DEFAULT_SUBTITLE_STYLE.margin_vertical, 30)
+        self.assertEqual(DEFAULT_SUBTITLE_STYLE.margin_vertical, 12)
+        self.assertEqual(DEFAULT_SUBTITLE_STYLE.margin_left, 12)
+        self.assertEqual(DEFAULT_SUBTITLE_STYLE.margin_right, 12)
 
     @patch("subify.embed._discover_available_font_names", return_value=set())
     def test_embed_filter_applies_centralized_force_style(self, _discover_fonts) -> None:
@@ -143,7 +148,34 @@ class EmbedTests(unittest.TestCase):
 
         self.assertIn("force_style=", video_filter)
         self.assertIn("Fontname\\=Consolas", video_filter)
-        self.assertIn("FontSize\\=15", video_filter)
+        self.assertIn("FontSize\\=10", video_filter)
+
+    @patch("subify.embed._discover_available_font_names", return_value=set())
+    def test_premium_subtitles_use_small_font_and_tight_margins(self, _discover_fonts) -> None:
+        style = build_force_style(SubtitleStyle(font_name="Consolas"))
+        values = _force_style_values(style)
+
+        font_size = int(values["FontSize"])
+        margin_left = int(values["MarginL"])
+        margin_right = int(values["MarginR"])
+        margin_vertical = int(values["MarginV"])
+
+        self.assertLessEqual(font_size, 10, "Font size must be 10pt or smaller for premium look")
+        self.assertLessEqual(margin_left, 12, "Left margin must be compact")
+        self.assertLessEqual(margin_right, 12, "Right margin must be compact")
+        self.assertLessEqual(margin_vertical, 12, "Vertical margin must be compact")
+
+    @patch("subify.embed._discover_available_font_names", return_value=set())
+    def test_premium_subtitles_use_subtle_outline_not_black_heavy(self, _discover_fonts) -> None:
+        style = build_force_style(SubtitleStyle(font_name="Consolas"))
+        values = _force_style_values(style)
+
+        outline_width = float(values["Outline"])
+        outline_color = values["OutlineColour"]
+
+        self.assertLess(outline_width, 0.5, "Outline width must be thin and subtle")
+        self.assertNotEqual(outline_color, "&H00000000", "Outline must not be pure black")
+        self.assertIn("80", outline_color, "Outline should have subtle transparency")
 
     @patch("subify.embed.run_ffmpeg")
     def test_embed_wraps_ffmpeg_failures(self, run_ffmpeg) -> None:

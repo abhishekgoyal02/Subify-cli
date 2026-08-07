@@ -9,7 +9,7 @@ from .errors import SRTError
 from .models import TranscriptSegment
 
 MAX_SUBTITLE_LINE_LENGTH = 42
-MAX_SUBTITLE_LINES = 2
+MAX_SUBTITLE_LINES = 1
 
 
 def format_srt_timestamp(seconds: float) -> str:
