@@ -67,24 +67,24 @@ class EmbedTests(unittest.TestCase):
         self.assertEqual(
             style,
             "Fontname=JetBrains Mono,"
-            "FontSize=18,"
-            "PrimaryColour=&H00FFFFFF,"
+            "FontSize=15,"
+            "PrimaryColour=&H00F2F2F2,"
             "OutlineColour=&H00000000,"
             "BorderStyle=1,"
-            "Outline=1,"
+            "Outline=0.8,"
             "Shadow=0,"
             "Bold=0,"
             "Italic=0,"
             "Alignment=2,"
-            "MarginL=24,"
-            "MarginR=24,"
-            "MarginV=36",
+            "MarginL=28,"
+            "MarginR=28,"
+            "MarginV=30",
         )
 
-    def test_subtitle_style_caps_font_size_at_18(self) -> None:
+    def test_subtitle_style_caps_font_size_at_16(self) -> None:
         style = build_force_style(SubtitleStyle(font_size=24))
 
-        self.assertIn("FontSize=18", style)
+        self.assertIn("FontSize=16", style)
         self.assertNotIn("FontSize=24", style)
 
     def test_subtitle_style_uses_one_concrete_font_not_css_fallback_chain(self) -> None:
@@ -100,15 +100,15 @@ class EmbedTests(unittest.TestCase):
 
         values = _force_style_values(style)
 
-        self.assertEqual(values["PrimaryColour"], "&H00FFFFFF")
+        self.assertEqual(values["PrimaryColour"], "&H00F2F2F2")
         self.assertEqual(values["OutlineColour"], "&H00000000")
         self.assertEqual(values["BorderStyle"], "1")
-        self.assertEqual(values["Outline"], "1")
+        self.assertEqual(values["Outline"], "0.8")
         self.assertEqual(values["Shadow"], "0")
         self.assertEqual(values["Bold"], "0")
         self.assertEqual(values["Italic"], "0")
         self.assertEqual(values["Alignment"], "2")
-        self.assertLessEqual(int(values["FontSize"]), 18)
+        self.assertLessEqual(int(values["FontSize"]), 16)
 
     @patch("subify.embed._discover_available_font_names")
     def test_font_selection_uses_first_detected_preferred_font(self, discover_fonts) -> None:
@@ -117,19 +117,19 @@ class EmbedTests(unittest.TestCase):
         self.assertEqual(select_subtitle_font(), "Fira Code")
 
     @patch("subify.embed._discover_available_font_names", return_value=set())
-    def test_font_selection_falls_back_to_generic_monospace(self, _discover_fonts) -> None:
-        self.assertEqual(select_subtitle_font(), "monospace")
+    def test_font_selection_falls_back_to_single_concrete_monospace_font(self, _discover_fonts) -> None:
+        self.assertEqual(select_subtitle_font(), "Consolas")
 
     def test_default_subtitle_style_centralizes_minimal_embedding_values(self) -> None:
-        self.assertEqual(DEFAULT_SUBTITLE_STYLE.font_size, 18)
-        self.assertEqual(DEFAULT_SUBTITLE_STYLE.primary_color, "&H00FFFFFF")
+        self.assertEqual(DEFAULT_SUBTITLE_STYLE.font_size, 15)
+        self.assertEqual(DEFAULT_SUBTITLE_STYLE.primary_color, "&H00F2F2F2")
         self.assertEqual(DEFAULT_SUBTITLE_STYLE.outline_color, "&H00000000")
-        self.assertEqual(DEFAULT_SUBTITLE_STYLE.outline_width, 1.0)
+        self.assertEqual(DEFAULT_SUBTITLE_STYLE.outline_width, 0.8)
         self.assertEqual(DEFAULT_SUBTITLE_STYLE.shadow, 0.0)
         self.assertEqual(DEFAULT_SUBTITLE_STYLE.bold, 0)
         self.assertEqual(DEFAULT_SUBTITLE_STYLE.italic, 0)
         self.assertEqual(DEFAULT_SUBTITLE_STYLE.alignment, 2)
-        self.assertEqual(DEFAULT_SUBTITLE_STYLE.margin_vertical, 36)
+        self.assertEqual(DEFAULT_SUBTITLE_STYLE.margin_vertical, 30)
 
     @patch("subify.embed._discover_available_font_names", return_value=set())
     def test_embed_filter_applies_centralized_force_style(self, _discover_fonts) -> None:
@@ -142,8 +142,8 @@ class EmbedTests(unittest.TestCase):
         video_filter = args[args.index("-vf") + 1]
 
         self.assertIn("force_style=", video_filter)
-        self.assertIn("Fontname\\=monospace", video_filter)
-        self.assertIn("FontSize\\=18", video_filter)
+        self.assertIn("Fontname\\=Consolas", video_filter)
+        self.assertIn("FontSize\\=15", video_filter)
 
     @patch("subify.embed.run_ffmpeg")
     def test_embed_wraps_ffmpeg_failures(self, run_ffmpeg) -> None:

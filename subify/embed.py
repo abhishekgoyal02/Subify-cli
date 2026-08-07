@@ -18,7 +18,7 @@ PREFERRED_SUBTITLE_FONTS = (
     "IBM Plex Mono",
     "Source Code Pro",
 )
-FALLBACK_SUBTITLE_FONT = "monospace"
+FALLBACK_SUBTITLE_FONT = "Consolas"
 FONT_FILE_EXTENSIONS = {".ttf", ".otf", ".ttc", ".otc"}
 
 
@@ -27,18 +27,18 @@ class SubtitleStyle:
     font_name: str | None = None
     preferred_fonts: tuple[str, ...] = PREFERRED_SUBTITLE_FONTS
     fallback_font: str = FALLBACK_SUBTITLE_FONT
-    font_size: int = 18
-    primary_color: str = "&H00FFFFFF"
+    font_size: int = 15
+    primary_color: str = "&H00F2F2F2"
     outline_color: str = "&H00000000"
     border_style: int = 1
-    outline_width: float = 1.0
+    outline_width: float = 0.8
     shadow: float = 0.0
     bold: int = 0
     italic: int = 0
     alignment: int = 2
-    margin_left: int = 24
-    margin_right: int = 24
-    margin_vertical: int = 36
+    margin_left: int = 28
+    margin_right: int = 28
+    margin_vertical: int = 30
 
 
 DEFAULT_SUBTITLE_STYLE = SubtitleStyle()
@@ -79,7 +79,7 @@ def build_force_style(style: SubtitleStyle = DEFAULT_SUBTITLE_STYLE) -> str:
     font_name = select_subtitle_font(style)
     values = {
         "Fontname": font_name,
-        "FontSize": str(min(style.font_size, 18)),
+        "FontSize": str(min(style.font_size, 16)),
         "PrimaryColour": style.primary_color,
         "OutlineColour": style.outline_color,
         "BorderStyle": str(style.border_style),
@@ -100,7 +100,7 @@ def select_subtitle_font(style: SubtitleStyle = DEFAULT_SUBTITLE_STYLE) -> str:
 
     Font discovery is intentionally limited to common OS font directories and
     filename matching. If none of the preferred fonts can be detected, libass
-    receives a generic monospace family instead of a CSS-style fallback chain.
+    receives one concrete monospace fallback instead of a CSS-style chain.
     """
     if style.font_name:
         return _single_font_name(style.font_name)
