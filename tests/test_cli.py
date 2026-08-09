@@ -64,7 +64,16 @@ class CLITests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         call = process_video.call_args
         self.assertEqual(call.args[0], Path("video.mp4"))
-        self.assertEqual(call.kwargs["output_dir"], Path("output"))
+        self.assertIsNone(call.kwargs["output_dir"])
+
+    @patch("subify.commands.process_video")
+    def test_process_explicit_output_dir_overrides_default(self, process_video) -> None:
+        process_video.return_value = ProcessResult(zip_path=Path("exports/video_subify.zip"), segments=[])
+
+        exit_code = main(["process", "video.mp4", "--output-dir", "exports"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(process_video.call_args.kwargs["output_dir"], Path("exports"))
 
     @patch("subify.ui.console", None)
     @patch("subify.commands.process_video")
@@ -107,7 +116,7 @@ class CLITests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         call = generate_srt.call_args
         self.assertEqual(call.args[0], Path("my lesson.mp4"))
-        self.assertEqual(call.kwargs["output_dir"], Path("output"))
+        self.assertIsNone(call.kwargs["output_dir"])
 
     @patch("subify.commands.embed_existing_subtitles")
     def test_embed_calls_pipeline_without_transcription(self, embed_existing_subtitles) -> None:
@@ -120,6 +129,7 @@ class CLITests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         call = embed_existing_subtitles.call_args
         self.assertEqual(call.args[:2], (Path("lesson.mp4"), Path("lesson.srt")))
+        self.assertIsNone(call.kwargs["output_dir"])
 
     @patch("subify.commands._print_dependency_status")
     @patch("subify.commands.process_video")
@@ -238,6 +248,22 @@ class CLITests(unittest.TestCase):
         self.assertIn("process", help_output)
         self.assertIn("generate-srt", help_output)
         self.assertIn("embed", help_output)
+        self.assertIn("--help", help_output)
+        self.assertIn("--version", help_output)
+        self.assertNotIn("Aparna goyal", help_output)
+
+    def test_process_help_lists_output_dir_default(self) -> None:
+        stdout = StringIO()
+        with patch("sys.stdout", stdout), self.assertRaises(SystemExit) as context:
+            main(["process", "--help"])
+
+        self.assertEqual(context.exception.code, 0)
+        help_output = stdout.getvalue()
+        self.assertIn("video_path", help_output)
+        self.assertIn("--output-dir", help_output)
+        self.assertIn("--show-transcript", help_output)
+        self.assertIn("Default: user's Downloads/Subify folder", help_output)
+        self.assertNotIn("Aparna goyal", help_output)
 
     @patch("subify.shell.start_shell")
     def test_help_does_not_start_shell(self, start_shell) -> None:

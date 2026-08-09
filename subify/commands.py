@@ -21,7 +21,7 @@ STAGE_LABELS = {
 }
 
 
-def process_command(video_path: Path, output_dir: Path, show_transcript: bool) -> int:
+def process_command(video_path: Path, output_dir: Path | None, show_transcript: bool) -> int:
     _print_dependency_status(include_whisper=True)
     progress = _ProgressPrinter()
     try:
@@ -42,7 +42,7 @@ def process_command(video_path: Path, output_dir: Path, show_transcript: bool) -
     return 0
 
 
-def generate_srt_command(video_path: Path, output_dir: Path, show_transcript: bool) -> int:
+def generate_srt_command(video_path: Path, output_dir: Path | None, show_transcript: bool) -> int:
     _print_dependency_status(include_whisper=True)
     progress = _ProgressPrinter()
     try:
@@ -63,7 +63,7 @@ def generate_srt_command(video_path: Path, output_dir: Path, show_transcript: bo
     return 0
 
 
-def embed_command(video_path: Path, subtitle_path: Path, output_dir: Path) -> int:
+def embed_command(video_path: Path, subtitle_path: Path, output_dir: Path | None) -> int:
     _print_dependency_status(include_whisper=False)
     progress = _ProgressPrinter()
     try:

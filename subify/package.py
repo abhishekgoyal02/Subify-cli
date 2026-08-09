@@ -13,13 +13,11 @@ def create_result_zip(
     original_video: Path,
     srt_path: Path,
     subtitled_video: Path,
-    output_dir: Path,
+    zip_path: Path,
 ) -> Path:
     stem = original_video.stem
-    zip_path = output_dir / f"{stem}_subify.zip"
 
     try:
-        output_dir.mkdir(parents=True, exist_ok=True)
         with ZipFile(zip_path, "w", compression=ZIP_DEFLATED) as archive:
             archive.write(srt_path, arcname=f"{stem}.srt")
             archive.write(subtitled_video, arcname=f"{stem}_subtitled.mp4")

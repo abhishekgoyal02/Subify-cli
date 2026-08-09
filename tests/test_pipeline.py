@@ -9,8 +9,10 @@ from subify.pipeline import (
     MAX_SUPPORTED_VIDEO_DURATION_SECONDS,
     dependency_status,
     embed_existing_subtitles,
+    generate_unique_zip_path,
     generate_srt,
     process_video,
+    resolve_default_output_directory,
     validate_output_and_temporary_space,
     validate_input_video,
     validate_runtime_dependencies,
@@ -106,6 +108,79 @@ class PipelineTests(unittest.TestCase):
             self.assertGreaterEqual(result.elapsed_time, 0.0)
             self.assertEqual(len(observed_temp_paths), 1)
             self.assertFalse(observed_temp_paths[0].exists())
+            self.assertEqual(
+                create_result_zip.call_args.kwargs["zip_path"],
+                (output_dir / "lesson_subify.zip").resolve(strict=False),
+            )
+
+    @patch("subify.pipeline.create_result_zip")
+    @patch("subify.pipeline.embed_subtitles")
+    @patch("subify.pipeline.write_srt")
+    @patch("subify.pipeline.transcribe_audio", return_value=[])
+    @patch("subify.pipeline.extract_audio")
+    @patch("subify.pipeline.probe_video_duration", return_value=12.0)
+    @patch("subify.pipeline.validate_runtime_dependencies")
+    def test_process_default_output_uses_downloads_subify(
+        self,
+        _validate_runtime_dependencies,
+        _probe_video_duration,
+        _extract_audio,
+        _transcribe_audio,
+        _write_srt,
+        _embed_subtitles,
+        create_result_zip,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir_name:
+            temp_dir = Path(temp_dir_name)
+            fake_home = temp_dir / "Aparna goyal"
+            fake_home.mkdir()
+            source = temp_dir / "anchor-slack-agent.mp4"
+            source.write_bytes(b"video")
+
+            def return_zip_path(**kwargs):
+                return kwargs["zip_path"]
+
+            create_result_zip.side_effect = return_zip_path
+
+            with patch("subify.pipeline.Path.home", return_value=fake_home):
+                result = process_video(source)
+
+            expected_dir = (fake_home / "Downloads" / "Subify").resolve(strict=False)
+            expected_zip = expected_dir / "anchor-slack-agent_subify.zip"
+
+            self.assertTrue(expected_dir.exists())
+            self.assertEqual(result.zip_path, expected_zip)
+            self.assertEqual(create_result_zip.call_args.kwargs["zip_path"], expected_zip)
+
+    def test_resolve_default_output_directory_uses_downloads_subify(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir_name:
+            fake_home = Path(temp_dir_name) / "User Name"
+            fake_home.mkdir()
+
+            with patch("subify.pipeline.Path.home", return_value=fake_home):
+                output_dir = resolve_default_output_directory()
+
+        self.assertEqual(output_dir, fake_home / "Downloads" / "Subify")
+
+    def test_generate_unique_zip_path_avoids_overwriting_existing_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir_name:
+            output_dir = Path(temp_dir_name)
+            source = output_dir / "lesson.mp4"
+            (output_dir / "lesson_subify.zip").write_bytes(b"keep")
+            (output_dir / "lesson_subify (1).zip").write_bytes(b"keep")
+
+            zip_path = generate_unique_zip_path(source, output_dir)
+
+        self.assertEqual(zip_path.name, "lesson_subify (2).zip")
+
+    def test_generate_unique_zip_path_handles_spaces_and_unicode(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir_name:
+            output_dir = Path(temp_dir_name)
+            source = output_dir / "my lesson こんにちは.mp4"
+
+            zip_path = generate_unique_zip_path(source, output_dir)
+
+        self.assertEqual(zip_path.name, "my lesson こんにちは_subify.zip")
 
     @patch("subify.pipeline.write_srt")
     @patch("subify.pipeline.transcribe_audio")

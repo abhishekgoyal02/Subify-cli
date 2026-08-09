@@ -35,7 +35,7 @@ SUPPORTED_VIDEO_SUFFIXES = {".mp4"}
 def process_video(
     video_path: Path | str,
     *,
-    output_dir: Path | str = "output",
+    output_dir: Path | str | None = None,
     progress_callback: ProgressCallback | None = None,
 ) -> ProcessResult:
     started_at = perf_counter()
@@ -52,7 +52,7 @@ def process_video(
         progress_callback,
         validate_output_and_temporary_space,
         source_video,
-        Path(output_dir),
+        output_dir,
     )
 
     with TemporaryDirectory(prefix="subify-") as temp_dir_name:
@@ -72,7 +72,7 @@ def process_video(
             original_video=source_video,
             srt_path=srt_path,
             subtitled_video=subtitled_video,
-            output_dir=resolved_output_dir,
+            zip_path=generate_unique_zip_path(source_video, resolved_output_dir),
         )
 
     return ProcessResult(
@@ -86,7 +86,7 @@ def process_video(
 def generate_srt(
     video_path: Path | str,
     *,
-    output_dir: Path | str = "output",
+    output_dir: Path | str | None = None,
     progress_callback: ProgressCallback | None = None,
 ) -> GenerateSRTResult:
     started_at = perf_counter()
@@ -103,7 +103,7 @@ def generate_srt(
         progress_callback,
         validate_output_and_temporary_space,
         source_video,
-        Path(output_dir),
+        output_dir,
     )
     final_srt_path = resolved_output_dir / f"{source_video.stem}.srt"
 
@@ -132,7 +132,7 @@ def embed_existing_subtitles(
     video_path: Path | str,
     subtitle_path: Path | str,
     *,
-    output_dir: Path | str = "output",
+    output_dir: Path | str | None = None,
     progress_callback: ProgressCallback | None = None,
 ) -> EmbedResult:
     started_at = perf_counter()
@@ -150,7 +150,7 @@ def embed_existing_subtitles(
         progress_callback,
         validate_output_and_temporary_space,
         source_video,
-        Path(output_dir),
+        output_dir,
     )
     final_video_path = resolved_output_dir / f"{source_video.stem}_subtitled.mp4"
 
@@ -275,10 +275,38 @@ def validate_supported_duration(video_path: Path) -> float:
     return duration
 
 
-def validate_output_and_temporary_space(source_video: Path, output_dir: Path) -> Path:
-    resolved_output_dir = validate_output_directory(output_dir)
+def validate_output_and_temporary_space(source_video: Path, output_dir: Path | str | None) -> Path:
+    resolved_output_dir = validate_output_directory(resolve_output_directory(output_dir))
     validate_temporary_space(source_video, resolved_output_dir)
     return resolved_output_dir
+
+
+def resolve_output_directory(output_dir: Path | str | None) -> Path:
+    if output_dir is not None:
+        return Path(output_dir)
+    return resolve_default_output_directory()
+
+
+def resolve_default_output_directory() -> Path:
+    try:
+        home = Path.home()
+    except RuntimeError as exc:
+        raise InputValidationError("Unable to resolve the user's Downloads/Subify folder.") from exc
+    return home / "Downloads" / "Subify"
+
+
+def generate_unique_zip_path(source_video: Path, output_dir: Path) -> Path:
+    stem = source_video.stem
+    base_path = output_dir / f"{stem}_subify.zip"
+    if not base_path.exists():
+        return base_path.resolve(strict=False)
+
+    index = 1
+    while True:
+        candidate = output_dir / f"{stem}_subify ({index}).zip"
+        if not candidate.exists():
+            return candidate.resolve(strict=False)
+        index += 1
 
 
 def validate_output_directory(output_dir: Path) -> Path:

@@ -35,8 +35,8 @@ def build_parser() -> argparse.ArgumentParser:
     process_parser.add_argument("video_path", help="Path to the source video.")
     process_parser.add_argument(
         "--output-dir",
-        default="output",
-        help="Directory where the final ZIP will be written. Defaults to output/.",
+        default=None,
+        help="Directory where the final ZIP will be written. Default: user's Downloads/Subify folder.",
     )
     process_parser.add_argument(
         "--show-transcript",
@@ -52,8 +52,8 @@ def build_parser() -> argparse.ArgumentParser:
     srt_parser.add_argument("video_path", help="Path to the source video.")
     srt_parser.add_argument(
         "--output-dir",
-        default="output",
-        help="Directory where the SRT file will be written. Defaults to output/.",
+        default=None,
+        help="Directory where the SRT file will be written. Default: user's Downloads/Subify folder.",
     )
     srt_parser.add_argument(
         "--show-transcript",
@@ -70,8 +70,8 @@ def build_parser() -> argparse.ArgumentParser:
     embed_parser.add_argument("subtitle_path", help="Path to an existing SRT subtitle file.")
     embed_parser.add_argument(
         "--output-dir",
-        default="output",
-        help="Directory where the subtitled MP4 will be written. Defaults to output/.",
+        default=None,
+        help="Directory where the subtitled MP4 will be written. Default: user's Downloads/Subify folder.",
     )
 
     return parser
@@ -92,11 +92,14 @@ def run_command(argv: Sequence[str]) -> int:
     args = parser.parse_args(args_list)
 
     if args.command == "process":
-        return process_command(Path(args.video_path), Path(args.output_dir), args.show_transcript)
+        output_dir = Path(args.output_dir) if args.output_dir is not None else None
+        return process_command(Path(args.video_path), output_dir, args.show_transcript)
     if args.command == "generate-srt":
-        return generate_srt_command(Path(args.video_path), Path(args.output_dir), args.show_transcript)
+        output_dir = Path(args.output_dir) if args.output_dir is not None else None
+        return generate_srt_command(Path(args.video_path), output_dir, args.show_transcript)
     if args.command == "embed":
-        return embed_command(Path(args.video_path), Path(args.subtitle_path), Path(args.output_dir))
+        output_dir = Path(args.output_dir) if args.output_dir is not None else None
+        return embed_command(Path(args.video_path), Path(args.subtitle_path), output_dir)
 
     parser.print_help()
     return 0
