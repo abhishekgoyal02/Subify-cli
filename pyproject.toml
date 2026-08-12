@@ -13,8 +13,11 @@ dependencies = [
     "faster-whisper>=1.0,<2.0",
 ]
 
+[project.optional-dependencies]
+telegram = []
+
 [project.scripts]
 subify = "subify.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["subify*"]
+include = ["subify*", "telegram*"]
