@@ -7,33 +7,25 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Protocol
 
-from subify.errors import (
-    DependencyError,
-    EmbeddingError,
-    FFmpegError,
-    InputValidationError,
-    PackagingError,
-    SRTError,
-    SubifyError,
-    TranscriptionError,
+from .errors import TelegramApiError
+from .ux import (
+    INITIAL_STATUS_MESSAGE,
+    NO_VIDEO_MESSAGE,
+    SUCCESS_STATUS_MESSAGE,
+    UNSUPPORTED_FILE_MESSAGE,
+    ZIP_CAPTION,
+    pipeline_error_message,
+    stage_message,
+    telegram_upload_error_message,
+    unknown_error_message,
 )
 from subify import pipeline as subify_pipeline
+from subify.errors import InputValidationError, PackagingError, SubifyError
 from subify.pipeline import ProgressEvent
 
 LOGGER = logging.getLogger(__name__)
 
 SUPPORTED_VIDEO_SUFFIX = ".mp4"
-STAGE_LABELS = {
-    "input_validation": "Validating video",
-    "dependency_validation": "Checking processing tools",
-    "duration_validation": "Checking video length",
-    "disk_space_validation": "Checking available space",
-    "audio_extraction": "Extracting audio",
-    "english_transcription": "Generating transcript",
-    "srt_generation": "Writing subtitles",
-    "subtitle_embedding": "Embedding subtitles",
-    "zip_packaging": "Packaging result",
-}
 
 
 class TelegramClient(Protocol):
@@ -69,17 +61,16 @@ class TelegramVideoHandler:
 
         attachment = _extract_video_attachment(message)
         if attachment is None:
-            self._client.send_message(chat_id, "Please send an .mp4 video file.")
+            self._client.send_message(chat_id, NO_VIDEO_MESSAGE)
             return
 
         file_id = attachment["file_id"]
         file_name = _safe_filename(attachment.get("file_name") or "telegram-video.mp4")
         if Path(file_name).suffix.lower() != SUPPORTED_VIDEO_SUFFIX:
-            self._client.send_message(chat_id, "Only .mp4 videos are supported in this version.")
+            self._client.send_message(chat_id, UNSUPPORTED_FILE_MESSAGE)
             return
 
-        status = self._client.send_message(chat_id, "Video received. Processing...")
-        status_message_id = _message_id(status)
+        status = _StatusMessage(self._client, chat_id, INITIAL_STATUS_MESSAGE)
 
         with TemporaryDirectory(prefix="subify-telegram-") as temp_dir_name:
             temp_dir = Path(temp_dir_name)
@@ -95,62 +86,40 @@ class TelegramVideoHandler:
                 result = subify_pipeline.process_video(
                     input_path,
                     output_dir=output_dir,
-                    progress_callback=self._progress_callback(chat_id, status_message_id),
+                    progress_callback=self._progress_callback(status),
                 )
-                if result.zip_path is None or not result.zip_path.exists():
+                if not _is_uploadable_zip(result.zip_path):
                     raise PackagingError("Subify did not produce a ZIP file.")
 
-                _send_or_edit(
-                    self._client,
+                LOGGER.info(
+                    "Sending Subify ZIP to Telegram: chat_id=%s file_name=%s size_bytes=%s",
                     chat_id,
-                    status_message_id,
-                    "Processing complete.",
+                    result.zip_path.name,
+                    result.zip_path.stat().st_size,
                 )
-                self._client.send_document(chat_id, result.zip_path, caption="Processing complete.")
+                status.edit(SUCCESS_STATUS_MESSAGE)
+                self._client.send_document(chat_id, result.zip_path, caption=ZIP_CAPTION)
+            except TelegramApiError as exc:
+                LOGGER.error("Telegram API %s failed while handling video: %s", exc.method, exc.description)
+                status.edit(telegram_upload_error_message(exc))
             except SubifyError as exc:
                 LOGGER.info("Telegram video processing failed: %s", exc)
-                self._client.send_message(chat_id, f"Processing failed:\n{telegram_error_message(exc)}")
+                status.edit(pipeline_error_message(exc))
             except Exception:
                 LOGGER.exception("Unexpected Telegram video processing failure")
-                self._client.send_message(
-                    chat_id,
-                    "Processing failed:\nAn unexpected error occurred while processing this video.",
-                )
+                status.edit(unknown_error_message())
 
-    def _progress_callback(self, chat_id: int, status_message_id: int | None):
+    def _progress_callback(self, status_message: "_StatusMessage"):
         def report(event: ProgressEvent) -> None:
             stage, status = event
             if status != "start":
                 return
-            label = STAGE_LABELS.get(stage, stage.replace("_", " ").title())
-            _send_or_edit(self._client, chat_id, status_message_id, f"{label}...")
+            status_message.edit(stage_message(stage))
 
         return report
 
 
-def telegram_error_message(exc: SubifyError) -> str:
-    if isinstance(exc, InputValidationError):
-        message = str(exc)
-        if "12 minutes" in message:
-            return "The maximum supported video length is 12 minutes."
-        if "Only .mp4" in message:
-            return "Only .mp4 videos are supported in this version."
-        if "Not enough" in message:
-            return "Subify does not have enough temporary disk space to process this video."
-        return "This video could not be read. Please send a valid .mp4 file."
-    if isinstance(exc, DependencyError):
-        return "Subify cannot process this video because a required dependency is unavailable."
-    if isinstance(exc, FFmpegError):
-        return "This video could not be read or processed. Please send a valid .mp4 file."
-    if isinstance(exc, TranscriptionError):
-        return "Subify could not generate a transcript for this video."
-    if isinstance(exc, SRTError):
-        return "Subify could not generate the subtitle file."
-    if isinstance(exc, EmbeddingError):
-        return "Subify could not embed subtitles into this video."
-    if isinstance(exc, PackagingError):
-        return "Subify could not package the processed files."
-    return "Subify could not process this video."
+telegram_error_message = pipeline_error_message
 
 
 def _extract_video_attachment(message: dict[str, Any]) -> dict[str, str] | None:
@@ -180,18 +149,41 @@ def _message_id(message: dict[str, Any]) -> int | None:
     return value if isinstance(value, int) else None
 
 
+def _is_uploadable_zip(zip_path: Path | None) -> bool:
+    if zip_path is None:
+        return False
+    try:
+        return zip_path.is_file() and zip_path.stat().st_size > 0
+    except OSError:
+        return False
+
+
 def _get_value(source: Any, key: str) -> Any:
     if isinstance(source, dict):
         return source.get(key)
     return getattr(source, key, None)
 
 
-def _send_or_edit(client: TelegramClient, chat_id: int, message_id: int | None, text: str) -> None:
-    if message_id is None:
-        client.send_message(chat_id, text)
-        return
-    try:
-        client.edit_message_text(chat_id, message_id, text)
-    except Exception:
-        LOGGER.info("Unable to edit Telegram status message; sending a new message instead.", exc_info=True)
-        client.send_message(chat_id, text)
+class _StatusMessage:
+    def __init__(self, client: TelegramClient, chat_id: int, initial_text: str) -> None:
+        self._client = client
+        self._chat_id = chat_id
+        self._text = initial_text
+        response = client.send_message(chat_id, initial_text)
+        self._message_id = _message_id(response)
+
+    @property
+    def text(self) -> str:
+        return self._text
+
+    def edit(self, text: str) -> None:
+        if text == self._text:
+            return
+        if self._message_id is None:
+            self._text = text
+            return
+        try:
+            self._client.edit_message_text(self._chat_id, self._message_id, text)
+            self._text = text
+        except Exception:
+            LOGGER.info("Unable to edit Telegram status message; continuing without message spam.", exc_info=True)

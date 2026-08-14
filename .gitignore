@@ -6,6 +6,8 @@ venv/
 env/
 
 .env
+.env.*
+!.env.sample
 
 .pytest_cache/
 .mypy_cache/
