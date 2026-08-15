@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import logging
 import shutil
 import sys
 import tempfile
@@ -20,8 +21,11 @@ from .package import create_result_zip
 from .srt_writer import write_srt
 from .transcribe import DEFAULT_LANGUAGE, transcribe_audio
 
+LOGGER = logging.getLogger(__name__)
+
 ProgressEvent = tuple[str, str]
 ProgressCallback = Callable[[ProgressEvent], None]
+TranscriptionFunction = Callable[[Path], list]
 
 ProcessResult = PipelineResult
 GenerateSRTResult = PipelineResult
@@ -37,6 +41,7 @@ def process_video(
     *,
     output_dir: Path | str | None = None,
     progress_callback: ProgressCallback | None = None,
+    transcription_function: TranscriptionFunction | None = None,
 ) -> ProcessResult:
     started_at = perf_counter()
     source_video = _run_stage(
@@ -61,8 +66,9 @@ def process_video(
         srt_path = temp_dir / f"{source_video.stem}.srt"
         subtitled_video = temp_dir / f"{source_video.stem}_subtitled.mp4"
 
+        transcribe = transcription_function if transcription_function is not None else transcribe_audio
         _run_stage("audio_extraction", progress_callback, extract_audio, source_video, audio_path)
-        segments = _run_stage("english_transcription", progress_callback, transcribe_audio, audio_path)
+        segments = _run_stage("english_transcription", progress_callback, transcribe, audio_path)
         _run_stage("srt_generation", progress_callback, write_srt, segments, srt_path)
         _run_stage("subtitle_embedding", progress_callback, embed_subtitles, source_video, srt_path, subtitled_video)
         zip_path = _run_stage(
@@ -365,7 +371,13 @@ def validate_temporary_space(source_video: Path, output_dir: Path) -> None:
 
 def _run_stage(stage: str, callback: ProgressCallback | None, function, *args, **kwargs):
     _emit(callback, stage, "start")
-    result = function(*args, **kwargs)
+    started_at = perf_counter()
+    try:
+        result = function(*args, **kwargs)
+    except Exception:
+        LOGGER.info("Subify pipeline stage failed: stage=%s elapsed=%.2fs", stage, _elapsed_since(started_at))
+        raise
+    LOGGER.info("Subify pipeline stage finished: stage=%s elapsed=%.2fs", stage, _elapsed_since(started_at))
     _emit(callback, stage, "complete")
     return result
 

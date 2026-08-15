@@ -52,6 +52,8 @@ def build_embed_subtitles_args(source_video: Path, srt_path: Path, output_video:
         str(source_video),
         "-vf",
         subtitle_filter,
+        "-preset",
+        "veryfast",
         "-c:a",
         "copy",
         str(output_video),

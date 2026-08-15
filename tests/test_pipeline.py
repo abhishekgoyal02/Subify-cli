@@ -61,6 +61,38 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(observed[6], ("disk_space_validation", "start"))
         extract_audio.assert_called_once()
 
+    def test_process_can_use_injected_transcription_function(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir_name:
+            temp_dir = Path(temp_dir_name)
+            source = temp_dir / "lesson.mp4"
+            source.write_bytes(b"video")
+            output_dir = temp_dir / "output"
+            observed_audio_paths: list[Path] = []
+
+            def transcribe_from_reused_model(audio_path: Path):
+                observed_audio_paths.append(audio_path)
+                return []
+
+            with (
+                patch("subify.pipeline.validate_runtime_dependencies"),
+                patch("subify.pipeline.probe_video_duration", return_value=12.0),
+                patch("subify.pipeline.extract_audio") as extract_audio,
+                patch("subify.pipeline.transcribe_audio") as default_transcribe,
+                patch("subify.pipeline.write_srt"),
+                patch("subify.pipeline.embed_subtitles"),
+                patch("subify.pipeline.create_result_zip", return_value=output_dir / "lesson_subify.zip"),
+            ):
+                process_video(
+                    source,
+                    output_dir=output_dir,
+                    transcription_function=transcribe_from_reused_model,
+                )
+
+        extract_audio.assert_called_once()
+        default_transcribe.assert_not_called()
+        self.assertEqual(len(observed_audio_paths), 1)
+        self.assertEqual(observed_audio_paths[0].name, "extracted_audio.wav")
+
     def test_validation_failure_reports_start_without_complete(self) -> None:
         observed: list[tuple[str, str]] = []
 

@@ -291,7 +291,7 @@ class TelegramHandlerTests(unittest.TestCase):
     def test_document_video_handling_calls_pipeline(self, process_video) -> None:
         client = FakeTelegramClient()
 
-        def run_pipeline(video_path: Path, *, output_dir: Path, progress_callback):
+        def run_pipeline(video_path: Path, *, output_dir: Path, progress_callback, transcription_function=None):
             zip_path = output_dir / "lesson_subify.zip"
             output_dir.mkdir(parents=True, exist_ok=True)
             zip_path.write_bytes(b"zip")
@@ -308,7 +308,7 @@ class TelegramHandlerTests(unittest.TestCase):
     def test_valid_video_handling_calls_pipeline_with_downloaded_file(self, process_video) -> None:
         client = FakeTelegramClient()
 
-        def run_pipeline(video_path: Path, *, output_dir: Path, progress_callback):
+        def run_pipeline(video_path: Path, *, output_dir: Path, progress_callback, transcription_function=None):
             self.assertEqual(video_path.name, "lesson.mp4")
             self.assertEqual(output_dir.name, "output")
             progress_callback(("audio_extraction", "start"))
@@ -331,7 +331,7 @@ class TelegramHandlerTests(unittest.TestCase):
         client = FakeTelegramClient()
         observed_path: list[Path] = []
 
-        def run_pipeline(video_path: Path, *, output_dir: Path, progress_callback):
+        def run_pipeline(video_path: Path, *, output_dir: Path, progress_callback, transcription_function=None):
             observed_path.append(video_path)
             zip_path = output_dir / "lesson_subify.zip"
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -355,7 +355,7 @@ class TelegramHandlerTests(unittest.TestCase):
             )
         }
 
-        def run_pipeline(_video_path: Path, *, output_dir: Path, progress_callback):
+        def run_pipeline(_video_path: Path, *, output_dir: Path, progress_callback, transcription_function=None):
             zip_path = output_dir / "lesson_subify.zip"
             output_dir.mkdir(parents=True, exist_ok=True)
             zip_path.write_bytes(b"zip")
@@ -371,7 +371,7 @@ class TelegramHandlerTests(unittest.TestCase):
     def test_successful_pipeline_result_sends_zip(self, process_video) -> None:
         client = FakeTelegramClient()
 
-        def run_pipeline(_video_path: Path, *, output_dir: Path, progress_callback):
+        def run_pipeline(_video_path: Path, *, output_dir: Path, progress_callback, transcription_function=None):
             zip_path = output_dir / "lesson_subify.zip"
             output_dir.mkdir(parents=True, exist_ok=True)
             zip_path.write_bytes(b"zip")
@@ -390,10 +390,37 @@ class TelegramHandlerTests(unittest.TestCase):
         self.assertEqual(client.edits[-1], (42, 1, SUCCESS_STATUS_MESSAGE))
 
     @patch("subify.pipeline.process_video")
+    def test_handler_passes_reusable_transcriber_to_pipeline(self, process_video) -> None:
+        client = FakeTelegramClient()
+        observed_transcription_functions = []
+
+        class FakeTranscriber:
+            def transcribe_audio(self, _audio_path: Path):
+                return []
+
+        fake_transcriber = FakeTranscriber()
+
+        def run_pipeline(_video_path: Path, *, output_dir: Path, progress_callback, transcription_function=None):
+            observed_transcription_functions.append(transcription_function)
+            zip_path = output_dir / "lesson_subify.zip"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            zip_path.write_bytes(b"zip")
+            return PipelineResult(zip_path=zip_path)
+
+        process_video.side_effect = run_pipeline
+
+        TelegramVideoHandler(client, transcriber=fake_transcriber).handle_update(video_update())
+
+        process_video.assert_called_once()
+        self.assertEqual(len(observed_transcription_functions), 1)
+        self.assertIs(observed_transcription_functions[0].__self__, fake_transcriber)
+        self.assertIs(observed_transcription_functions[0].__func__, FakeTranscriber.transcribe_audio)
+
+    @patch("subify.pipeline.process_video")
     def test_duplicate_stage_text_does_not_trigger_duplicate_edit(self, process_video) -> None:
         client = FakeTelegramClient()
 
-        def run_pipeline(_video_path: Path, *, output_dir: Path, progress_callback):
+        def run_pipeline(_video_path: Path, *, output_dir: Path, progress_callback, transcription_function=None):
             progress_callback(("audio_extraction", "start"))
             progress_callback(("audio_extraction", "start"))
             zip_path = output_dir / "lesson_subify.zip"
@@ -417,7 +444,7 @@ class TelegramHandlerTests(unittest.TestCase):
         client = FakeTelegramClient()
         client.fail_edits = True
 
-        def run_pipeline(_video_path: Path, *, output_dir: Path, progress_callback):
+        def run_pipeline(_video_path: Path, *, output_dir: Path, progress_callback, transcription_function=None):
             progress_callback(("audio_extraction", "start"))
             zip_path = output_dir / "lesson_subify.zip"
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -437,7 +464,7 @@ class TelegramHandlerTests(unittest.TestCase):
         client = FakeTelegramClient()
         observed_paths: list[Path] = []
 
-        def run_pipeline(video_path: Path, *, output_dir: Path, progress_callback):
+        def run_pipeline(video_path: Path, *, output_dir: Path, progress_callback, transcription_function=None):
             zip_path = output_dir / "lesson_subify.zip"
             output_dir.mkdir(parents=True, exist_ok=True)
             zip_path.write_bytes(b"zip")
@@ -457,7 +484,7 @@ class TelegramHandlerTests(unittest.TestCase):
         client = FakeTelegramClient()
         observed_input: list[Path] = []
 
-        def fail_pipeline(video_path: Path, *, output_dir: Path, progress_callback):
+        def fail_pipeline(video_path: Path, *, output_dir: Path, progress_callback, transcription_function=None):
             observed_input.append(video_path)
             raise TranscriptionError("Transcription failed: internal")
 
@@ -523,7 +550,7 @@ class TelegramHandlerTests(unittest.TestCase):
     def test_empty_zip_result_is_reported_as_packaging_failure(self, process_video) -> None:
         client = FakeTelegramClient()
 
-        def run_pipeline(_video_path: Path, *, output_dir: Path, progress_callback):
+        def run_pipeline(_video_path: Path, *, output_dir: Path, progress_callback, transcription_function=None):
             zip_path = output_dir / "empty.zip"
             output_dir.mkdir(parents=True, exist_ok=True)
             zip_path.write_bytes(b"")
@@ -544,7 +571,7 @@ class TelegramHandlerTests(unittest.TestCase):
         def fail_send_document(chat_id: int, document_path: Path, *, caption: str | None = None):
             raise TelegramApiError("sendDocument", "Bad Request: document send failed", status_code=400)
 
-        def run_pipeline(_video_path: Path, *, output_dir: Path, progress_callback):
+        def run_pipeline(_video_path: Path, *, output_dir: Path, progress_callback, transcription_function=None):
             zip_path = output_dir / "lesson_subify.zip"
             output_dir.mkdir(parents=True, exist_ok=True)
             zip_path.write_bytes(b"zip")
@@ -565,7 +592,7 @@ class TelegramHandlerTests(unittest.TestCase):
     def test_nonexistent_zip_result_is_reported_as_packaging_failure(self, process_video) -> None:
         client = FakeTelegramClient()
 
-        def run_pipeline(_video_path: Path, *, output_dir: Path, progress_callback):
+        def run_pipeline(_video_path: Path, *, output_dir: Path, progress_callback, transcription_function=None):
             return PipelineResult(zip_path=output_dir / "missing.zip")
 
         process_video.side_effect = run_pipeline

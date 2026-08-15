@@ -26,6 +26,16 @@ class EmbedTests(unittest.TestCase):
         self.assertTrue(any("subtitles=filename=captions.srt" in arg for arg in args))
         self.assertEqual(args[-1], "subtitled.mp4")
 
+    def test_embed_uses_fast_video_preset_and_copies_audio(self) -> None:
+        args = build_embed_subtitles_args(
+            Path("input.mp4"),
+            Path("captions.srt"),
+            Path("subtitled.mp4"),
+        )
+
+        self.assertEqual(args[args.index("-preset") + 1], "veryfast")
+        self.assertEqual(args[args.index("-c:a") + 1], "copy")
+
     def test_subtitle_filter_escapes_special_character_paths(self) -> None:
         filenames = [
             "My Video.srt",
