@@ -19,6 +19,7 @@ from .handlers import TelegramVideoHandler
 
 TOKEN_ENV_VAR = "SUBIFY_TELEGRAM_BOT_TOKEN"
 DEFAULT_POLL_TIMEOUT_SECONDS = 30
+DOWNLOAD_CHUNK_SIZE_BYTES = 1024 * 1024
 
 LOGGER = logging.getLogger(__name__)
 
@@ -57,9 +58,61 @@ class BotApiClient:
         return dict(self._api_request("getFile", {"file_id": file_id}))
 
     def download_file(self, file_path: str, destination: Path) -> Path:
+        url_started_at = time.perf_counter()
+        file_url = f"{self._file_base}/{parse.quote(file_path)}"
+        LOGGER.info(
+            "Telegram file URL resolved: file_name=%s elapsed=%.4fs",
+            _safe_remote_file_name(file_path),
+            time.perf_counter() - url_started_at,
+        )
+
         destination.parent.mkdir(parents=True, exist_ok=True)
-        with request.urlopen(f"{self._file_base}/{parse.quote(file_path)}") as response:
-            destination.write_bytes(response.read())
+        partial_destination = destination.with_name(f"{destination.name}.part")
+        bytes_downloaded = 0
+        read_elapsed = 0.0
+        write_elapsed = 0.0
+
+        open_started_at = time.perf_counter()
+        try:
+            with request.urlopen(file_url) as response:
+                open_elapsed = time.perf_counter() - open_started_at
+                expected_bytes = _content_length(response)
+                with partial_destination.open("wb") as output:
+                    while True:
+                        read_started_at = time.perf_counter()
+                        chunk = response.read(DOWNLOAD_CHUNK_SIZE_BYTES)
+                        read_elapsed += time.perf_counter() - read_started_at
+                        if not chunk:
+                            break
+
+                        write_started_at = time.perf_counter()
+                        output.write(chunk)
+                        write_elapsed += time.perf_counter() - write_started_at
+                        bytes_downloaded += len(chunk)
+        except error.HTTPError as exc:
+            _delete_partial_download(partial_destination)
+            raise self._telegram_http_error("downloadFile", exc) from exc
+        except Exception:
+            _delete_partial_download(partial_destination)
+            raise
+
+        if bytes_downloaded <= 0:
+            _delete_partial_download(partial_destination)
+            raise TelegramApiError("downloadFile", "Downloaded file was empty")
+        if expected_bytes is not None and bytes_downloaded != expected_bytes:
+            _delete_partial_download(partial_destination)
+            raise TelegramApiError("downloadFile", "Downloaded file was incomplete")
+
+        partial_destination.replace(destination)
+        LOGGER.info(
+            "Telegram file download breakdown: file_name=%s bytes=%s connection_setup=%.4fs network_read=%.4fs disk_write=%.4fs total=%.4fs",
+            _safe_remote_file_name(file_path),
+            bytes_downloaded,
+            open_elapsed,
+            read_elapsed,
+            write_elapsed,
+            time.perf_counter() - url_started_at,
+        )
         return destination
 
     def send_document(self, chat_id: int, document_path: Path, *, caption: str | None = None) -> dict[str, Any]:
@@ -78,11 +131,23 @@ class BotApiClient:
     def _api_request(self, method: str, payload: Mapping[str, Any]) -> Any:
         body = parse.urlencode(payload).encode("utf-8")
         req = request.Request(f"{self._api_base}/{method}", data=body)
+        started_at = time.perf_counter()
         try:
             with request.urlopen(req) as response:
-                data = json.loads(response.read().decode("utf-8"))
+                open_elapsed = time.perf_counter() - started_at
+                read_started_at = time.perf_counter()
+                response_body = response.read()
+                read_elapsed = time.perf_counter() - read_started_at
+                data = json.loads(response_body.decode("utf-8"))
         except error.HTTPError as exc:
             raise self._telegram_http_error(method, exc) from exc
+        LOGGER.info(
+            "Telegram API request finished: method=%s connection_setup=%.4fs response_read=%.4fs total=%.4fs",
+            method,
+            open_elapsed,
+            read_elapsed,
+            time.perf_counter() - started_at,
+        )
         if not data.get("ok"):
             description = _telegram_description(data)
             LOGGER.error("Telegram API %s failed: %s", method, description)
@@ -163,6 +228,35 @@ def _telegram_description(data: Mapping[str, Any]) -> str:
     if isinstance(error_code, int):
         return f"Telegram returned error code {error_code}"
     return "Telegram API request failed"
+
+
+def _safe_remote_file_name(file_path: str) -> str:
+    return Path(file_path.replace("\\", "/")).name or "telegram-file"
+
+
+def _content_length(response: Any) -> int | None:
+    headers = getattr(response, "headers", None)
+    if headers is None:
+        return None
+    try:
+        value = headers.get("Content-Length")
+    except AttributeError:
+        return None
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _delete_partial_download(path: Path) -> None:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return
+    except OSError:
+        LOGGER.info("Unable to delete partial Telegram download: file_name=%s", path.name, exc_info=True)
 
 
 def _validate_document_upload_path(document_path: Path) -> None:

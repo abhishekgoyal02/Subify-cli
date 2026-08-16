@@ -9,7 +9,15 @@ from unittest.mock import patch
 
 from subify.errors import InputValidationError, PackagingError, TranscriptionError
 from subify.models import PipelineResult
-from telegram.bot import TOKEN_ENV_VAR, BotApiClient, TelegramApiError, TelegramConfigError, load_bot_token, run_polling
+from telegram.bot import (
+    DOWNLOAD_CHUNK_SIZE_BYTES,
+    TOKEN_ENV_VAR,
+    BotApiClient,
+    TelegramApiError,
+    TelegramConfigError,
+    load_bot_token,
+    run_polling,
+)
 from telegram.handlers import TelegramVideoHandler, telegram_error_message
 from telegram.ux import (
     INITIAL_STATUS_MESSAGE,
@@ -129,6 +137,136 @@ class TelegramConfigTests(unittest.TestCase):
         log_output = "\n".join(logs.output)
         self.assertIn("Bad Request: file is too big", log_output)
         self.assertIn("Bad Request: file is too big", str(context.exception))
+        self.assertNotIn("secret-token", log_output)
+        self.assertNotIn("secret-token", str(context.exception))
+
+    @patch("telegram.bot.request.urlopen")
+    def test_download_file_streams_to_disk_and_logs_breakdown_without_token(self, urlopen) -> None:
+        captured = {"read_sizes": []}
+
+        class FakeResponse:
+            headers = {"Content-Length": "6"}
+
+            def __init__(self) -> None:
+                self._chunks = [b"abc", b"def", b""]
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def read(self, size=-1):
+                captured["read_sizes"].append(size)
+                return self._chunks.pop(0)
+
+        def capture_url(url):
+            captured["url"] = url
+            return FakeResponse()
+
+        urlopen.side_effect = capture_url
+
+        with tempfile.TemporaryDirectory() as temp_dir_name:
+            destination = Path(temp_dir_name) / "lesson.mp4"
+
+            with self.assertLogs("telegram.bot", level="INFO") as logs:
+                result = BotApiClient("secret-token").download_file("videos/source lesson.mp4", destination)
+
+            self.assertEqual(result, destination)
+            self.assertEqual(destination.read_bytes(), b"abcdef")
+            self.assertFalse(destination.with_name("lesson.mp4.part").exists())
+
+        log_output = "\n".join(logs.output)
+        self.assertIn("Telegram file download breakdown", log_output)
+        self.assertIn("bytes=6", log_output)
+        self.assertIn("source lesson.mp4", log_output)
+        self.assertNotIn("secret-token", log_output)
+        self.assertTrue(captured["url"].endswith("/videos/source%20lesson.mp4"))
+        self.assertEqual(captured["read_sizes"], [DOWNLOAD_CHUNK_SIZE_BYTES] * 3)
+
+    @patch("telegram.bot.request.urlopen")
+    def test_download_file_rejects_empty_response_and_removes_partial_file(self, urlopen) -> None:
+        class FakeResponse:
+            headers = {"Content-Length": "0"}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def read(self, _size=-1):
+                return b""
+
+        urlopen.return_value = FakeResponse()
+
+        with tempfile.TemporaryDirectory() as temp_dir_name:
+            destination = Path(temp_dir_name) / "lesson.mp4"
+
+            with self.assertRaises(TelegramApiError) as context:
+                BotApiClient("secret-token").download_file("videos/lesson.mp4", destination)
+
+            self.assertFalse(destination.exists())
+            self.assertFalse(destination.with_name("lesson.mp4.part").exists())
+
+        self.assertIn("empty", str(context.exception))
+        self.assertNotIn("secret-token", str(context.exception))
+
+    @patch("telegram.bot.request.urlopen")
+    def test_download_file_rejects_incomplete_response_and_removes_partial_file(self, urlopen) -> None:
+        class FakeResponse:
+            headers = {"Content-Length": "6"}
+
+            def __init__(self) -> None:
+                self._chunks = [b"abc", b""]
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def read(self, _size=-1):
+                return self._chunks.pop(0)
+
+        urlopen.return_value = FakeResponse()
+
+        with tempfile.TemporaryDirectory() as temp_dir_name:
+            destination = Path(temp_dir_name) / "lesson.mp4"
+
+            with self.assertRaises(TelegramApiError) as context:
+                BotApiClient("secret-token").download_file("videos/lesson.mp4", destination)
+
+            self.assertFalse(destination.exists())
+            self.assertFalse(destination.with_name("lesson.mp4.part").exists())
+
+        self.assertIn("incomplete", str(context.exception))
+        self.assertNotIn("secret-token", str(context.exception))
+
+    @patch("telegram.bot.request.urlopen")
+    def test_download_file_http_error_exposes_safe_description(self, urlopen) -> None:
+        body = b'{"ok":false,"error_code":404,"description":"Not Found"}'
+        urlopen.side_effect = HTTPError(
+            "https://api.telegram.org/file/botsecret-token/videos/lesson.mp4",
+            404,
+            "Not Found",
+            {},
+            BytesIO(body),
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir_name:
+            destination = Path(temp_dir_name) / "lesson.mp4"
+
+            with self.assertLogs("telegram.bot", level="ERROR") as logs:
+                with self.assertRaises(TelegramApiError) as context:
+                    BotApiClient("secret-token").download_file("videos/lesson.mp4", destination)
+
+            self.assertFalse(destination.exists())
+            self.assertFalse(destination.with_name("lesson.mp4.part").exists())
+
+        log_output = "\n".join(logs.output)
+        self.assertIn("Not Found", log_output)
+        self.assertIn("Not Found", str(context.exception))
         self.assertNotIn("secret-token", log_output)
         self.assertNotIn("secret-token", str(context.exception))
 
