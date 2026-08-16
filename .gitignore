@@ -9,9 +9,15 @@ env/
 .env.*
 !.env.sample
 
+
+
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+website/node_modules/
+website/dist/
+website/.vite/
 
 subify-*/
 tmp/
