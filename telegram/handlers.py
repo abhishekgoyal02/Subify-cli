@@ -28,6 +28,13 @@ from subify.transcribe import WhisperTranscriber, recommended_cpu_threads
 LOGGER = logging.getLogger(__name__)
 
 SUPPORTED_VIDEO_SUFFIX = ".mp4"
+STATUS_UPDATE_STAGES = frozenset(
+    {
+        "english_transcription",
+        "subtitle_embedding",
+        "zip_packaging",
+    }
+)
 
 
 class TelegramClient(Protocol):
@@ -141,6 +148,8 @@ class TelegramVideoHandler:
         def report(event: ProgressEvent) -> None:
             stage, status = event
             if status != "start":
+                return
+            if stage not in STATUS_UPDATE_STAGES:
                 return
             status_message.edit(stage_message(stage))
 

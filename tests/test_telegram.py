@@ -18,7 +18,7 @@ from telegram.bot import (
     load_bot_token,
     run_polling,
 )
-from telegram.handlers import TelegramVideoHandler, telegram_error_message
+from telegram.handlers import STATUS_UPDATE_STAGES, TelegramVideoHandler, telegram_error_message
 from telegram.ux import (
     INITIAL_STATUS_MESSAGE,
     SUCCESS_STATUS_MESSAGE,
@@ -408,6 +408,17 @@ class TelegramConfigTests(unittest.TestCase):
 
         self.assertEqual(set(TELEGRAM_STAGE_MESSAGES), expected_stages)
 
+    def test_status_update_stages_are_meaningful_slow_milestones(self) -> None:
+        self.assertEqual(
+            STATUS_UPDATE_STAGES,
+            {
+                "english_transcription",
+                "subtitle_embedding",
+                "zip_packaging",
+            },
+        )
+        self.assertLess(set(STATUS_UPDATE_STAGES), set(TELEGRAM_STAGE_MESSAGES))
+
 
 class TelegramHandlerTests(unittest.TestCase):
     def test_no_video_prompts_user_for_mp4(self) -> None:
@@ -450,6 +461,7 @@ class TelegramHandlerTests(unittest.TestCase):
             self.assertEqual(video_path.name, "lesson.mp4")
             self.assertEqual(output_dir.name, "output")
             progress_callback(("audio_extraction", "start"))
+            progress_callback(("english_transcription", "start"))
             zip_path = output_dir / "lesson_subify.zip"
             output_dir.mkdir(parents=True, exist_ok=True)
             zip_path.write_bytes(b"zip")
@@ -461,7 +473,8 @@ class TelegramHandlerTests(unittest.TestCase):
 
         self.assertEqual(process_video.call_count, 1)
         self.assertEqual(client.messages, [(42, INITIAL_STATUS_MESSAGE)])
-        self.assertTrue(any(TELEGRAM_STAGE_MESSAGES["audio_extraction"] == edit[2] for edit in client.edits))
+        self.assertNotIn(TELEGRAM_STAGE_MESSAGES["audio_extraction"], [edit[2] for edit in client.edits])
+        self.assertTrue(any(TELEGRAM_STAGE_MESSAGES["english_transcription"] == edit[2] for edit in client.edits))
         self.assertTrue(all(edit[1] == 1 for edit in client.edits))
 
     @patch("subify.pipeline.process_video")
@@ -559,8 +572,8 @@ class TelegramHandlerTests(unittest.TestCase):
         client = FakeTelegramClient()
 
         def run_pipeline(_video_path: Path, *, output_dir: Path, progress_callback, transcription_function=None):
-            progress_callback(("audio_extraction", "start"))
-            progress_callback(("audio_extraction", "start"))
+            progress_callback(("english_transcription", "start"))
+            progress_callback(("english_transcription", "start"))
             zip_path = output_dir / "lesson_subify.zip"
             output_dir.mkdir(parents=True, exist_ok=True)
             zip_path.write_bytes(b"zip")
@@ -570,12 +583,69 @@ class TelegramHandlerTests(unittest.TestCase):
 
         TelegramVideoHandler(client).handle_update(video_update())
 
-        audio_edits = [
+        transcription_edits = [
             edit for edit in client.edits
-            if edit[2] == TELEGRAM_STAGE_MESSAGES["audio_extraction"]
+            if edit[2] == TELEGRAM_STAGE_MESSAGES["english_transcription"]
         ]
-        self.assertEqual(len(audio_edits), 1)
+        self.assertEqual(len(transcription_edits), 1)
         self.assertEqual(len(client.messages), 1)
+
+    @patch("subify.pipeline.process_video")
+    def test_quick_pipeline_stages_do_not_trigger_status_edits(self, process_video) -> None:
+        client = FakeTelegramClient()
+
+        def run_pipeline(_video_path: Path, *, output_dir: Path, progress_callback, transcription_function=None):
+            for stage in (
+                "input_validation",
+                "dependency_validation",
+                "duration_validation",
+                "disk_space_validation",
+                "audio_extraction",
+                "srt_generation",
+            ):
+                progress_callback((stage, "start"))
+            zip_path = output_dir / "lesson_subify.zip"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            zip_path.write_bytes(b"zip")
+            return PipelineResult(zip_path=zip_path)
+
+        process_video.side_effect = run_pipeline
+
+        TelegramVideoHandler(client).handle_update(video_update())
+
+        self.assertEqual(client.messages, [(42, INITIAL_STATUS_MESSAGE)])
+        self.assertEqual(client.edits, [(42, 1, SUCCESS_STATUS_MESSAGE)])
+
+    @patch("subify.pipeline.process_video")
+    def test_meaningful_pipeline_stages_edit_same_status_message(self, process_video) -> None:
+        client = FakeTelegramClient()
+
+        def run_pipeline(_video_path: Path, *, output_dir: Path, progress_callback, transcription_function=None):
+            for stage in (
+                "english_transcription",
+                "subtitle_embedding",
+                "zip_packaging",
+            ):
+                progress_callback((stage, "start"))
+            zip_path = output_dir / "lesson_subify.zip"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            zip_path.write_bytes(b"zip")
+            return PipelineResult(zip_path=zip_path)
+
+        process_video.side_effect = run_pipeline
+
+        TelegramVideoHandler(client).handle_update(video_update())
+
+        self.assertEqual(client.messages, [(42, INITIAL_STATUS_MESSAGE)])
+        self.assertEqual(
+            client.edits,
+            [
+                (42, 1, TELEGRAM_STAGE_MESSAGES["english_transcription"]),
+                (42, 1, TELEGRAM_STAGE_MESSAGES["subtitle_embedding"]),
+                (42, 1, TELEGRAM_STAGE_MESSAGES["zip_packaging"]),
+                (42, 1, SUCCESS_STATUS_MESSAGE),
+            ],
+        )
 
     @patch("subify.pipeline.process_video")
     def test_status_edit_failure_does_not_stop_processing_or_send_replacement_messages(self, process_video) -> None:
@@ -583,7 +653,7 @@ class TelegramHandlerTests(unittest.TestCase):
         client.fail_edits = True
 
         def run_pipeline(_video_path: Path, *, output_dir: Path, progress_callback, transcription_function=None):
-            progress_callback(("audio_extraction", "start"))
+            progress_callback(("english_transcription", "start"))
             zip_path = output_dir / "lesson_subify.zip"
             output_dir.mkdir(parents=True, exist_ok=True)
             zip_path.write_bytes(b"zip")
