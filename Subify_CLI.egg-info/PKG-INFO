@@ -6,6 +6,7 @@ Requires-Python: >=3.11
 Description-Content-Type: text/markdown
 Requires-Dist: rich<14.0,>=13.0
 Requires-Dist: faster-whisper<2.0,>=1.0
+Provides-Extra: telegram
 
 # Subify-CLI
 

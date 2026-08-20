@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 from . import ui
+from .doctor import doctor_command
 from .errors import SubifyError
 from .models import TranscriptSegment
 from .pipeline import dependency_status, embed_existing_subtitles, generate_srt, process_video

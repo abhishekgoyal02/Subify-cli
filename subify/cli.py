@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Sequence
 
 from . import __version__
-from .commands import embed_command, generate_srt_command, process_command
+from .commands import doctor_command, embed_command, generate_srt_command, process_command
 from .shell import start_shell
 
 
@@ -27,6 +27,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     subparsers = parser.add_subparsers(dest="command")
+    subparsers.add_parser(
+        "doctor",
+        help="Run local Subify environment diagnostics.",
+        description="Check whether this machine is ready to run Subify.",
+    )
+
     process_parser = subparsers.add_parser(
         "process",
         help="Run the full English subtitle pipeline and create a ZIP.",
@@ -94,6 +100,8 @@ def run_command(argv: Sequence[str]) -> int:
     if args.command == "process":
         output_dir = Path(args.output_dir) if args.output_dir is not None else None
         return process_command(Path(args.video_path), output_dir, args.show_transcript)
+    if args.command == "doctor":
+        return doctor_command()
     if args.command == "generate-srt":
         output_dir = Path(args.output_dir) if args.output_dir is not None else None
         return generate_srt_command(Path(args.video_path), output_dir, args.show_transcript)
