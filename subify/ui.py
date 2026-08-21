@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 ACCENT = "#E76F51"
-WELCOME_INNER_PANEL_HEIGHT = 16
+WELCOME_INNER_PANEL_HEIGHT = 14
 
 try:
     from rich import box
@@ -71,7 +71,7 @@ def render_welcome(version: str, cwd: Path | None = None) -> None:
             title_align="left",
             border_style=ACCENT,
             box=box.ROUNDED if box is not None else None,
-            padding=(1, 2),
+            padding=(0, 2),
         )
     )
 
@@ -185,7 +185,7 @@ def _identity_panel(version: str, cwd: Path | None, height: int | None = None) -
         Align.center(body),
         border_style=ACCENT,
         box=box.ROUNDED if box is not None else None,
-        padding=(1, 2),
+        padding=(0, 2),
         height=height,
     )
 
@@ -224,7 +224,7 @@ def _getting_started_panel(height: int | None = None) -> Panel:
         body,
         border_style=ACCENT,
         box=box.ROUNDED if box is not None else None,
-        padding=(1, 2),
+        padding=(0, 2),
         height=height,
     )
 
