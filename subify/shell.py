@@ -10,30 +10,72 @@ from . import __version__
 from . import ui
 
 DIRECT_COMMANDS = {"process", "generate-srt", "embed"}
-SLASH_COMMANDS = ("/help", "/version", "/clear", "/exit")
+SLASH_DIRECT_COMMANDS = {
+    "/process": "process",
+    "/generate-srt": "generate-srt",
+    "/embed": "embed",
+    "/update": "update",
+    "/config": "config",
+}
+SLASH_COMMANDS = (
+    "/help",
+    "/version",
+    "/process",
+    "/generate-srt",
+    "/embed",
+    "/update",
+    "/config",
+    "/clear",
+    "/history",
+    "/exit",
+)
 
 CommandDispatcher = Callable[[Sequence[str]], int]
 InputReader = Callable[[str], str]
 
 
 def start_shell(dispatcher: CommandDispatcher, input_reader: InputReader = input) -> int:
+    ui.clear_terminal()
     ui.render_welcome(__version__, Path.cwd())
+    history: list[str] = []
+    interrupt_armed = False
     while True:
         try:
-            line = ui.read_shell_input(input_reader)
+            line = ui.read_shell_input(
+                input_reader,
+                suggestions=SLASH_COMMANDS,
+                exit_hint=(
+                    ui.SHELL_ARMED_EXIT_HINT
+                    if interrupt_armed
+                    else ui.SHELL_DEFAULT_EXIT_HINT
+                ),
+            )
         except EOFError:
             ui.render_shell_exit()
             return 0
         except KeyboardInterrupt:
-            ui.print_message("")
-            ui.render_shell_exit()
+            if input_reader is input:
+                ui.render_shell_exit()
+                return 0
+            if interrupt_armed:
+                ui.render_shell_exit()
+                return 0
+            interrupt_armed = True
+            continue
+
+        interrupt_armed = False
+        if line.strip():
+            history.append(line.strip())
+        if not execute_shell_line(line, dispatcher, history=history):
             return 0
 
-        if not execute_shell_line(line, dispatcher):
-            return 0
 
-
-def execute_shell_line(line: str, dispatcher: CommandDispatcher) -> bool:
+def execute_shell_line(
+    line: str,
+    dispatcher: CommandDispatcher,
+    *,
+    history: Sequence[str] = (),
+) -> bool:
     stripped = line.strip()
     if not stripped:
         return True
@@ -46,7 +88,7 @@ def execute_shell_line(line: str, dispatcher: CommandDispatcher) -> bool:
 
     command = args[0].lower()
     if command == "/":
-        ui.render_shell_suggestions(SLASH_COMMANDS)
+        ui.render_shell_suggestions(suggest_shell_commands(command))
         return True
     if command == "/help":
         ui.render_shell_help()
@@ -57,9 +99,16 @@ def execute_shell_line(line: str, dispatcher: CommandDispatcher) -> bool:
     if command == "/clear":
         ui.clear_terminal()
         return True
+    if command == "/history":
+        ui.render_shell_history(history)
+        return True
     if command == "/exit":
         ui.render_shell_exit()
         return False
+    if command in SLASH_DIRECT_COMMANDS:
+        args = [SLASH_DIRECT_COMMANDS[command], *args[1:]]
+        _run_direct_command(args, dispatcher, validate_arguments=args[0] in DIRECT_COMMANDS)
+        return True
     if command in DIRECT_COMMANDS:
         _run_direct_command(args, dispatcher)
         return True
@@ -75,6 +124,12 @@ def parse_shell_command(line: str) -> list[str]:
     return [_strip_outer_quotes(token) for token in lexer]
 
 
+def suggest_shell_commands(prefix: str) -> tuple[str, ...]:
+    if not prefix.startswith("/"):
+        return ()
+    return tuple(command for command in SLASH_COMMANDS if command.startswith(prefix))
+
+
 def command_usage(command: str) -> str:
     return {
         "process": "process <video>",
@@ -83,8 +138,13 @@ def command_usage(command: str) -> str:
     }.get(command, command)
 
 
-def _run_direct_command(args: Sequence[str], dispatcher: CommandDispatcher) -> None:
-    if not _has_required_arguments(args):
+def _run_direct_command(
+    args: Sequence[str],
+    dispatcher: CommandDispatcher,
+    *,
+    validate_arguments: bool = True,
+) -> None:
+    if validate_arguments and not _has_required_arguments(args):
         ui.render_shell_error(f"Usage: {command_usage(args[0])}")
         return
 

@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import io
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 ACCENT = "#E76F51"
 WELCOME_INNER_PANEL_HEIGHT = 14
 SHELL_INPUT_PLACEHOLDER = "Ask Subify to do anything"
+SHELL_DEFAULT_EXIT_HINT = "Press Ctrl+C to exit Subify, or type /exit."
+SHELL_ARMED_EXIT_HINT = "Press Ctrl+C again to exit."
+HELP_URL = "https://subify-cli.vercel.app/"
 
 try:
     from rich import box
@@ -109,19 +112,34 @@ def render_dependency_status(*, ffmpeg_ready: bool, whisper_ready: bool, include
 
 
 def render_shell_help() -> None:
-    lines = [
-        "Interactive shell commands:",
-        "  process <video>",
-        "  generate-srt <video>",
-        "  embed <video> <srt>",
-        "  /help",
-        "  /version",
-        "  /clear",
-        "  /exit",
-        "",
-        "Type / to see shell commands.",
-    ]
-    print_message("\n".join(lines))
+    if console is None or Panel is None or Table is None or Text is None:
+        _render_plain_shell_help()
+        return
+
+    body = Table.grid()
+    body.add_column()
+    body.add_row(
+        Text(
+            "A quick map of the shell and what Subify actually does.",
+            style="white",
+            overflow="fold",
+        )
+    )
+    body.add_row(Text("Type / to discover actions, then use arrows or Enter.", style="dim"))
+    link = Text(HELP_URL, style="dim")
+    body.add_row(link)
+
+    console.print(
+        Panel(
+            body,
+            title=Text(" SUBIFY HELP ", style=f"bold {ACCENT}"),
+            title_align="left",
+            border_style=ACCENT,
+            box=box.ROUNDED if box is not None else None,
+            padding=(1, 2),
+            width=66,
+        )
+    )
 
 
 def render_shell_error(message: str) -> None:
@@ -137,13 +155,44 @@ def render_shell_exit() -> None:
 
 
 def render_shell_suggestions(commands: tuple[str, ...]) -> None:
-    print_message("  ".join(commands))
+    if not commands:
+        return
+    if console is not None and Text is not None:
+        for index, command in enumerate(commands):
+            marker = "› " if index == 0 else "  "
+            style = f"bold {ACCENT}" if index == 0 else "white"
+            text = Text(marker, style=ACCENT if index == 0 else "dim")
+            text.append(command, style=style)
+            console.print(text)
+        return
+    print("\n".join(commands))
 
 
-def read_shell_input(input_reader: Callable[[str], str] = input) -> str:
+def render_shell_footer() -> None:
+    print_message(f"[dim]{SHELL_DEFAULT_EXIT_HINT}[/]")
+
+
+def render_shell_interrupt_hint() -> None:
+    print_message(f"[dim]{SHELL_ARMED_EXIT_HINT}[/]")
+
+
+def render_shell_history(history: Sequence[str]) -> None:
+    entries = [entry for entry in history if entry.strip() != "/history"]
+    if not entries:
+        print_message("[dim]No shell history yet.[/]")
+        return
+    print_message("\n".join(entries[-20:]))
+
+
+def read_shell_input(
+    input_reader: Callable[[str], str] = input,
+    *,
+    suggestions: Sequence[str] = (),
+    exit_hint: str = SHELL_DEFAULT_EXIT_HINT,
+) -> str:
     """Read one command from the dedicated Subify shell input area."""
     if _can_read_native_shell_input(input_reader):
-        return _read_native_shell_input()
+        return _read_native_shell_input(tuple(suggestions), exit_hint)
 
     top, prompt, bottom = _shell_input_frame()
     if top:
@@ -300,50 +349,195 @@ def _can_read_native_shell_input(input_reader: Callable[[str], str]) -> bool:
     )
 
 
-def _read_native_shell_input() -> str:
+def _read_native_shell_input(suggestions: Sequence[str], exit_hint: str) -> str:
     import msvcrt
 
     top, _, bottom = _shell_input_frame()
     prompt = _shell_input_prefix()
-    placeholder = f"\033[2m{SHELL_INPUT_PLACEHOLDER}\033[0m"
+    current_exit_hint = exit_hint
     output = console.file
-    output.write(f"{top}\n{prompt}{placeholder}\r{prompt}")
-    output.flush()
+    output.write(f"{top}\n")
 
     line: list[str] = []
     placeholder_visible = True
+    highlighted = 0
+    visible_suggestions: tuple[str, ...] = ()
+    suggestions_closed = False
+    _redraw_native_shell_input(
+        output, prompt, line, placeholder_visible, suggestions, highlighted, bottom, current_exit_hint
+    )
     while True:
         key = msvcrt.getwch()
         if key in ("\x00", "\xe0"):
-            msvcrt.getwch()
+            current_exit_hint = SHELL_DEFAULT_EXIT_HINT
+            key = msvcrt.getwch()
+            if key == "H":
+                if visible_suggestions:
+                    highlighted = (highlighted - 1) % len(visible_suggestions)
+                    _redraw_native_shell_input(
+                        output, prompt, line, placeholder_visible, suggestions, highlighted, bottom, current_exit_hint
+                    )
+                    visible_suggestions = _matching_suggestions("".join(line), suggestions)
+                continue
+            if key == "P":
+                if visible_suggestions:
+                    highlighted = (highlighted + 1) % len(visible_suggestions)
+                    _redraw_native_shell_input(
+                        output, prompt, line, placeholder_visible, suggestions, highlighted, bottom, current_exit_hint
+                    )
+                    visible_suggestions = _matching_suggestions("".join(line), suggestions)
+                continue
             continue
         if key == "\x03":
-            output.write(f"\n{bottom}\n")
+            if current_exit_hint != SHELL_ARMED_EXIT_HINT:
+                current_exit_hint = SHELL_ARMED_EXIT_HINT
+                _redraw_native_shell_input(
+                    output,
+                    prompt,
+                    line,
+                    placeholder_visible,
+                    suggestions,
+                    highlighted,
+                    bottom,
+                    current_exit_hint,
+                )
+                visible_suggestions = _matching_suggestions("".join(line), suggestions)
+                continue
+            _finish_native_shell_input(output, prompt, line, placeholder_visible, bottom, current_exit_hint)
             output.flush()
             raise KeyboardInterrupt
         if key == "\x1a":
-            output.write(f"\n{bottom}\n")
+            _finish_native_shell_input(output, prompt, line, placeholder_visible, bottom, current_exit_hint)
             output.flush()
             raise EOFError
         if key in ("\r", "\n"):
-            output.write(f"\n{bottom}\n")
+            if visible_suggestions and line and "".join(line) != visible_suggestions[highlighted]:
+                line = list(visible_suggestions[highlighted])
+                _redraw_native_shell_input(
+                    output, prompt, line, False, suggestions, highlighted, bottom, current_exit_hint
+                )
+            _finish_native_shell_input(output, prompt, line, False, bottom, current_exit_hint)
             output.flush()
             return "".join(line)
+        if key == "\t":
+            current_exit_hint = SHELL_DEFAULT_EXIT_HINT
+            if visible_suggestions:
+                line = list(visible_suggestions[highlighted])
+                placeholder_visible = False
+                highlighted = 0
+                _redraw_native_shell_input(
+                    output, prompt, line, placeholder_visible, suggestions, highlighted, bottom, current_exit_hint
+                )
+                visible_suggestions = _matching_suggestions("".join(line), suggestions)
+            continue
+        if key == "\x1b":
+            current_exit_hint = SHELL_DEFAULT_EXIT_HINT
+            visible_suggestions = ()
+            highlighted = 0
+            suggestions_closed = True
+            _redraw_native_shell_input(
+                output, prompt, line, placeholder_visible, (), highlighted, bottom, current_exit_hint
+            )
+            continue
         if key in ("\b", "\x7f"):
+            current_exit_hint = SHELL_DEFAULT_EXIT_HINT
             if line:
                 line.pop()
-                output.write("\b \b")
-                output.flush()
+                highlighted = 0
+                placeholder_visible = len(line) == 0
+                suggestions_closed = False
+                _redraw_native_shell_input(
+                    output, prompt, line, placeholder_visible, suggestions, highlighted, bottom, current_exit_hint
+                )
+                visible_suggestions = _matching_suggestions("".join(line), suggestions)
             continue
         if not key.isprintable():
             continue
 
-        if placeholder_visible:
-            output.write("\033[K")
-            placeholder_visible = False
+        current_exit_hint = SHELL_DEFAULT_EXIT_HINT
         line.append(key)
-        output.write(key)
-        output.flush()
+        placeholder_visible = False
+        highlighted = 0
+        suggestions_closed = False
+        _redraw_native_shell_input(
+            output, prompt, line, placeholder_visible, suggestions, highlighted, bottom, current_exit_hint
+        )
+        visible_suggestions = () if suggestions_closed else _matching_suggestions("".join(line), suggestions)
+
+
+def _redraw_native_shell_input(
+    output: io.TextIOBase,
+    prompt: str,
+    line: Sequence[str],
+    placeholder_visible: bool,
+    suggestions: Sequence[str],
+    highlighted: int,
+    bottom: str,
+    exit_hint: str,
+    show_hint: bool = True,
+) -> None:
+    value = "".join(line)
+    visible_suggestions = _matching_suggestions(value, suggestions)
+    output.write("\r\033[J")
+    if placeholder_visible:
+        output.write(f"{prompt}\033[2m{SHELL_INPUT_PLACEHOLDER}\033[0m")
+        input_columns = 2
+    else:
+        output.write(f"{prompt}{value}")
+        input_columns = 2 + len(value)
+
+    if visible_suggestions:
+        for index, suggestion in enumerate(visible_suggestions):
+            if index == highlighted:
+                output.write(f"\n{_ansi_from_hex(ACCENT)}› {suggestion}\033[0m")
+            else:
+                output.write(f"\n\033[37m  {suggestion}\033[0m")
+
+    output.write(f"\n{bottom}")
+    if show_hint:
+        output.write(f"\n\033[2m{exit_hint}\033[0m")
+
+    lines_below_input = len(visible_suggestions) + 1
+    if show_hint:
+        lines_below_input += 1
+    output.write(f"\033[{lines_below_input}A")
+    output.write("\r")
+    if input_columns:
+        output.write(f"\033[{input_columns}C")
+    output.flush()
+
+
+def _finish_native_shell_input(
+    output: io.TextIOBase,
+    prompt: str,
+    line: Sequence[str],
+    placeholder_visible: bool,
+    bottom: str,
+    exit_hint: str,
+) -> None:
+    _redraw_native_shell_input(
+        output, prompt, line, placeholder_visible, (), 0, bottom, exit_hint, show_hint=False
+    )
+    output.write("\033[1B\r\n")
+
+
+def _matching_suggestions(value: str, suggestions: Sequence[str]) -> tuple[str, ...]:
+    if not value.startswith("/"):
+        return ()
+    return tuple(suggestion for suggestion in suggestions if suggestion.startswith(value))
+
+
+def _render_plain_shell_help() -> None:
+    print(
+        "\n".join(
+            [
+                "SUBIFY HELP",
+                "A quick map of the shell and what Subify actually does.",
+                "Type / to discover actions, then use arrows or Enter.",
+                HELP_URL,
+            ]
+        )
+    )
 
 
 def _write_shell_input_line(line: str) -> None:
