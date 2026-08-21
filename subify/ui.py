@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 ACCENT = "#E76F51"
+WELCOME_INNER_PANEL_HEIGHT = 16
 
 try:
     from rich import box
@@ -49,16 +50,18 @@ def render_welcome(version: str, cwd: Path | None = None) -> None:
         return
 
     width = console.width
-    left = _identity_panel(version, cwd)
-    right = _getting_started_panel()
 
     if width >= 96:
+        left = _identity_panel(version, cwd, height=WELCOME_INNER_PANEL_HEIGHT)
+        right = _getting_started_panel(height=WELCOME_INNER_PANEL_HEIGHT)
         grid = Table.grid(expand=True)
-        grid.add_column(ratio=5)
-        grid.add_column(ratio=7)
+        grid.add_column(ratio=1)
+        grid.add_column(ratio=1)
         grid.add_row(left, right)
         content = grid
     else:
+        left = _identity_panel(version, cwd)
+        right = _getting_started_panel()
         content = Group(left, right) if Group is not None else Table.grid()
 
     console.print(
@@ -168,7 +171,7 @@ def print_message(message: str) -> None:
         print(message)
 
 
-def _identity_panel(version: str, cwd: Path | None) -> Panel:
+def _identity_panel(version: str, cwd: Path | None, height: int | None = None) -> Panel:
     body = Table.grid(expand=True)
     body.add_column(justify="center")
     body.add_row(Text("Welcome to Subify!", style=f"bold {ACCENT}"))
@@ -183,10 +186,11 @@ def _identity_panel(version: str, cwd: Path | None) -> Panel:
         border_style=ACCENT,
         box=box.ROUNDED if box is not None else None,
         padding=(1, 2),
+        height=height,
     )
 
 
-def _getting_started_panel() -> Panel:
+def _getting_started_panel(height: int | None = None) -> Panel:
     help_instruction = Text("Run ", style="white")
     help_instruction.append("/help", style="dim")
     help_instruction.append(
@@ -221,6 +225,7 @@ def _getting_started_panel() -> Panel:
         border_style=ACCENT,
         box=box.ROUNDED if box is not None else None,
         padding=(1, 2),
+        height=height,
     )
 
 
