@@ -187,28 +187,34 @@ def _identity_panel(version: str, cwd: Path | None) -> Panel:
 
 
 def _getting_started_panel() -> Panel:
-    commands = Table.grid(padding=(0, 1))
-    commands.add_column(style=f"bold {ACCENT}", no_wrap=True)
-    commands.add_column(style="white")
-    commands.add_row("process", "subify process video.mp4")
-    commands.add_row("generate-srt", "subify generate-srt video.mp4")
-    commands.add_row("embed", "subify embed video.mp4 subtitles.srt")
+    help_instruction = Text("Run ", style="white")
+    help_instruction.append("/help", style="dim")
+    help_instruction.append(
+        " to learn the Subify-CLI instructions and available shell actions.",
+        style="white",
+    )
 
-    pipeline = Text()
-    for index, step in enumerate(
-        ["Audio", "Transcribe", "SRT", "Embed", "ZIP"]
-    ):
-        if index:
-            pipeline.append(" -> ", style="dim")
-        pipeline.append(step, style="white")
+    note = Text()
+    note.append("Tip: ", style=f"bold {ACCENT}")
+    note.append(
+        "Start from the folder that contains your video files for the smoothest workflow.",
+        style="dim",
+    )
 
     body = Table.grid(expand=True)
     body.add_column()
-    body.add_row(Text("Getting Started", style=f"bold {ACCENT}"))
-    body.add_row(commands)
-    body.add_row("")
-    body.add_row(Text("Pipeline", style=f"bold {ACCENT}"))
-    body.add_row(pipeline)
+    body.add_row(Text("Tips for getting started", style=f"bold {ACCENT}"))
+    body.add_row(help_instruction)
+    body.add_row(note)
+    body.add_row(Text("─" * 52, style="dim"))
+    body.add_row(Text("What's Subify?", style=f"bold {ACCENT}"))
+    body.add_row(
+        Text(
+            "An end-to-end subtitle pipeline that transforms raw video into publish-ready content through a unified automated workflow behind a single powerful CLI.",
+            style="white",
+            overflow="fold",
+        )
+    )
 
     return Panel(
         body,
@@ -256,12 +262,13 @@ def _render_plain_welcome(version: str, cwd: Path | None) -> None:
     print("| |    __    |                                               |")
     print("|  \\__|__|__/                                                |")
     print("|                                                            |")
-    print("| Getting Started                                            |")
-    print("|   subify process video.mp4                                 |")
-    print("|   subify generate-srt video.mp4                            |")
-    print("|   subify embed video.mp4 subtitles.srt                     |")
-    print("|                                                            |")
-    print("| Pipeline: Audio -> English Text -> SRT -> MP4 -> ZIP       |")
+    print("| Tips for getting started                                   |")
+    print("|   Run /help to learn Subify-CLI instructions and shell     |")
+    print("|   actions. Start from your video folder for a smoother     |")
+    print("|   workflow.                                                |")
+    print("|   --------------------------------------------------------------     |")
+    print("| What's Subify?                                             |")
+    print("|   An end-to-end subtitle pipeline that transforms raw video into publish-ready content through a unified automated workflow behind a single powerful CLI.                                               |")
     if cwd is not None:
         print(f"| CWD: {str(cwd)[:53]:<53}|")
     print("+------------------------------------------------------------+")
