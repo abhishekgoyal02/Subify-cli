@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import Mock, patch
 
+from subify import ui
 from subify.shell import execute_shell_line, parse_shell_command, start_shell
 
 
@@ -18,6 +19,25 @@ class ShellTests(unittest.TestCase):
         render_welcome.assert_called_once()
         render_exit.assert_called_once()
         dispatcher.assert_not_called()
+
+    def test_shell_input_uses_subify_placeholder_not_traditional_prompt(self) -> None:
+        prompts: list[str] = []
+
+        def input_reader(prompt: str) -> str:
+            prompts.append(prompt)
+            return "/exit"
+
+        with (
+            patch("subify.shell.ui.render_welcome"),
+            patch("subify.shell.ui.render_shell_exit"),
+        ):
+            start_shell(Mock(return_value=0), input_reader=input_reader)
+
+        self.assertEqual(len(prompts), 1)
+        self.assertIn(ui.SHELL_INPUT_PLACEHOLDER, prompts[0])
+        self.assertNotIn("subify >", prompts[0])
+        self.assertNotIn("C:\\>", prompts[0])
+        self.assertNotIn("PS C:\\>", prompts[0])
 
     def test_shell_help_works(self) -> None:
         with patch("subify.shell.ui.render_shell_help") as render_help:

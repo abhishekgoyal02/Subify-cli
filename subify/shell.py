@@ -9,7 +9,6 @@ from pathlib import Path
 from . import __version__
 from . import ui
 
-PROMPT = "subify > "
 DIRECT_COMMANDS = {"process", "generate-srt", "embed"}
 SLASH_COMMANDS = ("/help", "/version", "/clear", "/exit")
 
@@ -21,7 +20,7 @@ def start_shell(dispatcher: CommandDispatcher, input_reader: InputReader = input
     ui.render_welcome(__version__, Path.cwd())
     while True:
         try:
-            line = input_reader(PROMPT)
+            line = ui.read_shell_input(input_reader)
         except EOFError:
             ui.render_shell_exit()
             return 0

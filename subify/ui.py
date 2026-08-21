@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import io
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 ACCENT = "#E76F51"
 WELCOME_INNER_PANEL_HEIGHT = 14
+SHELL_INPUT_PLACEHOLDER = "Ask Subify to do anything"
 
 try:
     from rich import box
@@ -138,6 +140,21 @@ def render_shell_suggestions(commands: tuple[str, ...]) -> None:
     print_message("  ".join(commands))
 
 
+def read_shell_input(input_reader: Callable[[str], str] = input) -> str:
+    """Read one command from the dedicated Subify shell input area."""
+    if _can_read_native_shell_input(input_reader):
+        return _read_native_shell_input()
+
+    top, prompt, bottom = _shell_input_frame()
+    if top:
+        _write_shell_input_line(top)
+    try:
+        return input_reader(prompt)
+    finally:
+        if bottom:
+            _write_shell_input_line(bottom)
+
+
 def clear_terminal() -> None:
     print("\033[2J\033[H", end="")
 
@@ -177,7 +194,7 @@ def _identity_panel(version: str, cwd: Path | None, height: int | None = None) -
     body.add_row(Text("Welcome to Subify!", style=f"bold {ACCENT}"))
     body.add_row(Text(_headphones_icon(), style=f"bold {ACCENT}", justify="center"))
     body.add_row(Text(f"Subify-CLI v{version}", style=f"bold {ACCENT}", justify="center"))
-    body.add_row(Text("AI-Powered English Subtitle Pipeline", style="white", justify="center"))
+    body.add_row(Text("AI-Powered Subtitle Pipeline", style="white", justify="center"))
     if cwd is not None:
         body.add_row(Text(str(cwd), style="dim", justify="center", overflow="fold"))
 
@@ -256,11 +273,97 @@ def _status_text(ready: bool) -> str:
     return "[red]Missing[/]"
 
 
+def _shell_input_frame() -> tuple[str, str, str]:
+    if console is None:
+        return "", f"{SHELL_INPUT_PLACEHOLDER} ", ""
+
+    accent = _ansi_from_hex(ACCENT)
+    dim = "\033[2m"
+    reset = "\033[0m"
+    top = f"{accent}╭─ Command{reset}"
+    prompt = f"{_shell_input_prefix()}{dim}{SHELL_INPUT_PLACEHOLDER}{reset} "
+    bottom = f"{accent}╰{'─' * 15}{reset}"
+    return top, prompt, bottom
+
+
+def _shell_input_prefix() -> str:
+    return f"{_ansi_from_hex(ACCENT)}│\033[0m "
+
+
+def _can_read_native_shell_input(input_reader: Callable[[str], str]) -> bool:
+    return (
+        input_reader is input
+        and sys.platform == "win32"
+        and console is not None
+        and sys.stdin.isatty()
+        and console.file.isatty()
+    )
+
+
+def _read_native_shell_input() -> str:
+    import msvcrt
+
+    top, _, bottom = _shell_input_frame()
+    prompt = _shell_input_prefix()
+    placeholder = f"\033[2m{SHELL_INPUT_PLACEHOLDER}\033[0m"
+    output = console.file
+    output.write(f"{top}\n{prompt}{placeholder}\r{prompt}")
+    output.flush()
+
+    line: list[str] = []
+    placeholder_visible = True
+    while True:
+        key = msvcrt.getwch()
+        if key in ("\x00", "\xe0"):
+            msvcrt.getwch()
+            continue
+        if key == "\x03":
+            output.write(f"\n{bottom}\n")
+            output.flush()
+            raise KeyboardInterrupt
+        if key == "\x1a":
+            output.write(f"\n{bottom}\n")
+            output.flush()
+            raise EOFError
+        if key in ("\r", "\n"):
+            output.write(f"\n{bottom}\n")
+            output.flush()
+            return "".join(line)
+        if key in ("\b", "\x7f"):
+            if line:
+                line.pop()
+                output.write("\b \b")
+                output.flush()
+            continue
+        if not key.isprintable():
+            continue
+
+        if placeholder_visible:
+            output.write("\033[K")
+            placeholder_visible = False
+        line.append(key)
+        output.write(key)
+        output.flush()
+
+
+def _write_shell_input_line(line: str) -> None:
+    output = console.file if console is not None else sys.stdout
+    output.write(f"{line}\n")
+    output.flush()
+
+
+def _ansi_from_hex(value: str) -> str:
+    red = int(value[1:3], 16)
+    green = int(value[3:5], 16)
+    blue = int(value[5:7], 16)
+    return f"\033[38;2;{red};{green};{blue}m"
+
+
 def _render_plain_welcome(version: str, cwd: Path | None) -> None:
     print("+------------------------------------------------------------+")
     print(f"| Subify-CLI v{version:<45}|")
     print("| Welcome to Subify!                                        |")
-    print("| AI-Powered English Subtitle Pipeline                      |")
+    print("| AI-Powered Subtitle Pipeline                      |")
     print("|                                                            |")
     print("|   __====__                                                 |")
     print("|  /  o  o  \\                                                |")
