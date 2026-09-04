@@ -1,9 +1,9 @@
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from subify.errors import FFmpegError
-from subify.ffmpeg_utils import build_extract_audio_args, probe_video_duration
+from subify.ffmpeg_utils import build_extract_audio_args, find_ffmpeg, find_ffprobe, probe_video_duration
 
 
 class FFmpegUtilsTests(unittest.TestCase):
@@ -33,6 +33,27 @@ class FFmpegUtilsTests(unittest.TestCase):
 
         with self.assertRaises(FFmpegError):
             probe_video_duration(Path("lesson.mp4"))
+
+    @patch("subify.ffmpeg_utils.managed_ffmpeg_paths", return_value=("managed-ffmpeg", "managed-ffprobe"))
+    @patch("subify.ffmpeg_utils.shutil.which", return_value=None)
+    def test_find_ffmpeg_uses_managed_binary_when_path_missing(self, _which, _managed_paths) -> None:
+        self.assertEqual(find_ffmpeg(), "managed-ffmpeg")
+
+    @patch("subify.ffmpeg_utils.managed_ffmpeg_paths", return_value=("managed-ffmpeg", "managed-ffprobe"))
+    @patch("subify.ffmpeg_utils.shutil.which", return_value=None)
+    def test_find_ffprobe_uses_managed_binary_when_path_missing(self, _which, _managed_paths) -> None:
+        self.assertEqual(find_ffprobe(), "managed-ffprobe")
+
+    @patch("subify.bootstrap.shutil.which", return_value=None)
+    def test_bootstrap_fetches_static_ffmpeg_when_system_tools_missing(self, _which) -> None:
+        from subify import bootstrap
+
+        bootstrap.managed_ffmpeg_paths.cache_clear()
+        run = Mock()
+        run.get_or_fetch_platform_executables_else_raise.return_value = ("ffmpeg-bin", "ffprobe-bin")
+
+        with patch.dict("sys.modules", {"static_ffmpeg": Mock(run=run)}):
+            self.assertEqual(bootstrap.managed_ffmpeg_paths(), ("ffmpeg-bin", "ffprobe-bin"))
 
 
 if __name__ == "__main__":

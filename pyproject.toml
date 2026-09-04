@@ -3,14 +3,15 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "Subify-CLI"
+name = "subify-cli"
 version = "0.1.0"
-description = "Developer CLI architecture for subtitle generation and embedding."
+description = "Local subtitle generation and embedding CLI with managed FFmpeg setup."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "rich>=13.0,<14.0",
     "faster-whisper>=1.0,<2.0",
+    "static-ffmpeg>=3.0,<4.0",
 ]
 
 [project.optional-dependencies]

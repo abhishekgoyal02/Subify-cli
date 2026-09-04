@@ -7,21 +7,30 @@ import subprocess
 from pathlib import Path
 from typing import Sequence
 
+from .bootstrap import managed_ffmpeg_paths
 from .errors import DependencyError, FFmpegError
 
 
 def find_ffmpeg() -> str:
     ffmpeg_path = shutil.which("ffmpeg")
-    if ffmpeg_path is None:
-        raise DependencyError("FFmpeg is not installed or is not on PATH.")
-    return ffmpeg_path
+    if ffmpeg_path is not None:
+        return ffmpeg_path
+    try:
+        managed_ffmpeg_path, _ = managed_ffmpeg_paths()
+    except DependencyError:
+        raise
+    return managed_ffmpeg_path
 
 
 def find_ffprobe() -> str:
     ffprobe_path = shutil.which("ffprobe")
-    if ffprobe_path is None:
-        raise DependencyError("FFprobe is not installed or is not on PATH. Install FFmpeg first.")
-    return ffprobe_path
+    if ffprobe_path is not None:
+        return ffprobe_path
+    try:
+        _, managed_ffprobe_path = managed_ffmpeg_paths()
+    except DependencyError:
+        raise
+    return managed_ffprobe_path
 
 
 def run_ffmpeg(args: Sequence[str], *, description: str) -> None:

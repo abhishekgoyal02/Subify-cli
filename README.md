@@ -36,22 +36,21 @@ video
 ## Requirements
 
 - Python 3.11 or newer
-- FFmpeg and FFprobe installed and available on `PATH`
-
-FFmpeg is a system dependency. It is not installed by this Python package.
+- FFmpeg and FFprobe are set up automatically by Subify on first run when they are not already available.
 
 ## Installation
 
-Subify-CLI is not published on PyPI. Clone the repository and install in editable mode so the `subify` command is registered:
+Install Subify-CLI with pip:
 
 ```sh
-python -m pip install -e .
+pip install subify-cli
 ```
 
-Without that install, the same entry point is:
+Then run:
 
 ```sh
-python -m subify
+subify doctor
+subify
 ```
 
 ## Usage

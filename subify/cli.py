@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import Sequence
 
 from . import __version__
+from .bootstrap import bootstrap_runtime_dependencies
 from .commands import doctor_command, embed_command, generate_srt_command, process_command
+from .errors import SubifyError
 from .shell import start_shell
 
 
@@ -85,10 +87,28 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args_list = list(argv) if argv is not None else list(sys.argv[1:])
+    if _should_bootstrap(args_list):
+        try:
+            bootstrap_runtime_dependencies(announce=_should_announce_bootstrap(args_list))
+        except SubifyError as exc:
+            from . import ui
+
+            ui.render_error(str(exc))
+            return 1
     if args_list == []:
         return start_shell(run_command)
 
     return run_command(args_list)
+
+
+def _should_bootstrap(args_list: Sequence[str]) -> bool:
+    if not args_list:
+        return True
+    return not any(arg in {"--help", "-h", "--version"} for arg in args_list)
+
+
+def _should_announce_bootstrap(args_list: Sequence[str]) -> bool:
+    return list(args_list) == ["doctor"]
 
 
 def run_command(argv: Sequence[str]) -> int:

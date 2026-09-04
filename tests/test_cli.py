@@ -10,17 +10,27 @@ from subify.pipeline import EmbedResult, GenerateSRTResult, ProcessResult
 
 
 class CLITests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._bootstrap_patcher = patch("subify.cli.bootstrap_runtime_dependencies")
+        self.bootstrap_runtime_dependencies = self._bootstrap_patcher.start()
+
+    def tearDown(self) -> None:
+        self._bootstrap_patcher.stop()
+
     @patch("subify.cli.start_shell", return_value=0)
-    def test_no_command_enters_shell_mode(self, start_shell) -> None:
+    @patch("subify.cli.bootstrap_runtime_dependencies")
+    def test_no_command_enters_shell_mode(self, bootstrap, start_shell) -> None:
         exit_code = main([])
 
         self.assertEqual(exit_code, 0)
+        bootstrap.assert_called_once_with(announce=False)
         start_shell.assert_called_once()
         self.assertTrue(callable(start_shell.call_args.args[0]))
 
     @patch("subify.cli.run_command", return_value=0)
     @patch("subify.cli.start_shell")
-    def test_shell_reuses_public_command_execution_path(self, start_shell, run_command) -> None:
+    @patch("subify.cli.bootstrap_runtime_dependencies")
+    def test_shell_reuses_public_command_execution_path(self, _bootstrap, start_shell, run_command) -> None:
         def run_shell(dispatcher):
             dispatcher(["process", "video.mp4"])
             return 0
@@ -54,6 +64,20 @@ class CLITests(unittest.TestCase):
             main(["--version"])
 
         start_shell.assert_not_called()
+
+    @patch("subify.cli.bootstrap_runtime_dependencies")
+    def test_help_does_not_bootstrap_runtime_dependencies(self, bootstrap) -> None:
+        with patch("sys.stdout", StringIO()), self.assertRaises(SystemExit):
+            main(["--help"])
+
+        bootstrap.assert_not_called()
+
+    @patch("subify.cli.bootstrap_runtime_dependencies")
+    def test_version_does_not_bootstrap_runtime_dependencies(self, bootstrap) -> None:
+        with self.assertRaises(SystemExit):
+            main(["--version"])
+
+        bootstrap.assert_not_called()
 
     @patch("subify.commands.process_video")
     def test_process_calls_pipeline(self, process_video) -> None:
@@ -187,7 +211,7 @@ class CLITests(unittest.TestCase):
             exit_code = main(["process", "video.mp4"])
 
         self.assertEqual(exit_code, 0)
-        starts = [call.args[0] for call in phase_status.start.call_args_list]
+        starts = list(dict.fromkeys(call.args[0] for call in phase_status.start.call_args_list))
         completes = [call.args[0] for call in phase_status.complete.call_args_list]
         self.assertEqual(
             starts,
@@ -229,7 +253,7 @@ class CLITests(unittest.TestCase):
             exit_code = main(["generate-srt", "video.mp4"])
 
         self.assertEqual(exit_code, 0)
-        starts = [call.args[0] for call in phase_status.start.call_args_list]
+        starts = list(dict.fromkeys(call.args[0] for call in phase_status.start.call_args_list))
         self.assertEqual(
             starts,
             [

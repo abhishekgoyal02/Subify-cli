@@ -26,8 +26,10 @@ class DoctorTests(unittest.TestCase):
     @patch("subify.doctor.validate_importable_dependency")
     @patch("subify.doctor.find_ffprobe", return_value="ffprobe")
     @patch("subify.doctor.find_ffmpeg", return_value="ffmpeg")
+    @patch("subify.cli.bootstrap_runtime_dependencies")
     def test_all_healthy_dependencies(
         self,
+        _bootstrap,
         _find_ffmpeg,
         _find_ffprobe,
         _validate_importable_dependency,
@@ -52,6 +54,23 @@ class DoctorTests(unittest.TestCase):
         self.assertIn("Temp Workspace", output)
         self.assertIn("Checks Passed : [✓] 7/7", output)
         self.assertIn("Status        : Ready to generate subtitles", output)
+        self.assertNotIn("SUBIFY IS READY TO USE.", output)
+
+    @patch("subify.cli.doctor_command", return_value=0)
+    @patch("subify.cli.bootstrap_runtime_dependencies")
+    def test_doctor_bootstraps_before_rendering_doctor(
+        self,
+        bootstrap_runtime_dependencies,
+        doctor_command,
+    ) -> None:
+        calls: list[str] = []
+        bootstrap_runtime_dependencies.side_effect = lambda announce=False: calls.append("bootstrap")
+        doctor_command.side_effect = lambda: calls.append("doctor") or 0
+
+        self.assertEqual(main(["doctor"]), 0)
+
+        bootstrap_runtime_dependencies.assert_called_once_with(announce=True)
+        self.assertEqual(calls, ["bootstrap", "doctor"])
 
     @patch("subify.doctor.sys.version_info", SimpleNamespace(major=3, minor=10, micro=9))
     @patch("subify.doctor.validate_python_runtime", side_effect=DependencyError("Python 3.11 or newer is required."))
@@ -68,7 +87,7 @@ class DoctorTests(unittest.TestCase):
 
         self.assertEqual(ffmpeg_check.status, DoctorStatus.FAIL)
         self.assertEqual(ffmpeg_check.detail, "Not found")
-        self.assertIn("PATH", ffmpeg_check.action)
+        self.assertIn("Reinstall Subify-CLI", ffmpeg_check.action)
 
     @patch("subify.doctor.find_ffprobe", side_effect=DependencyError("missing"))
     def test_ffprobe_missing(self, _find_ffprobe) -> None:
@@ -133,14 +152,15 @@ class DoctorTests(unittest.TestCase):
         output = stdout.getvalue()
         self.assertIn("[✗] 5/7 checks passed", output)
         self.assertIn("Issues Found:", output)
-        self.assertIn("FFmpeg not found in PATH", output)
+        self.assertIn("FFmpeg not available to Subify", output)
         self.assertIn("Faster-Whisper missing", output)
         self.assertIn("Run:", output)
         self.assertIn("pip install faster-whisper", output)
 
-    @patch("subify.cli.start_shell")
     @patch("subify.cli.doctor_command", return_value=0)
-    def test_doctor_does_not_start_shell(self, doctor_command, start_shell) -> None:
+    @patch("subify.cli.start_shell")
+    @patch("subify.cli.bootstrap_runtime_dependencies")
+    def test_doctor_does_not_start_shell(self, _bootstrap, start_shell, doctor_command) -> None:
         self.assertEqual(main(["doctor"]), 0)
         doctor_command.assert_called_once()
         start_shell.assert_not_called()

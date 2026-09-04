@@ -139,9 +139,9 @@ def _check_ffmpeg() -> DoctorCheck:
             "FFmpeg",
             DoctorStatus.FAIL,
             "Not found",
-            "Install FFmpeg and make it available on PATH.",
+            "Reinstall Subify-CLI or check your network connection.",
         )
-    return DoctorCheck("FFmpeg", DoctorStatus.PASS, "ffmpeg.exe available in PATH")
+    return DoctorCheck("FFmpeg", DoctorStatus.PASS, "Media encoder available to Subify")
 
 
 def _check_ffprobe() -> DoctorCheck:
@@ -152,7 +152,7 @@ def _check_ffprobe() -> DoctorCheck:
             "FFprobe",
             DoctorStatus.FAIL,
             "Not found",
-            "Install FFmpeg and make FFprobe available on PATH.",
+            "Reinstall Subify-CLI or check your network connection.",
         )
     return DoctorCheck("FFprobe", DoctorStatus.PASS, "Media inspection tools ready")
 
@@ -367,11 +367,11 @@ def _issues_found(checks: list[DoctorCheck]) -> list[str]:
         if check.status is not DoctorStatus.FAIL:
             continue
         if check.name == "FFmpeg":
-            issues.append("FFmpeg not found in PATH")
+            issues.append("FFmpeg not available to Subify")
         elif check.name == "Faster-Whisper":
             issues.append("Faster-Whisper missing")
         elif check.name == "FFprobe":
-            issues.append("FFprobe not found in PATH")
+            issues.append("FFprobe not available to Subify")
         else:
             issues.append(check.detail)
     return issues
