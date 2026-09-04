@@ -1,200 +1,113 @@
 # Subify-CLI
 
-Subify-CLI is a developer-focused subtitle generation and subtitle embedding tool. It provides a public command-line interface while keeping the processing pipeline reusable for future interfaces.
+Subify-CLI is a local subtitle product for short English `.mp4` recordings. It turns spoken audio into timed text, burns that text into a new video, and delivers both artifacts in a single ZIP.
 
-## Current Status
+The source file is never overwritten. Current scope is `.mp4` input up to 12 minutes.
 
-Implemented:
+Website: [subify-cli.vercel.app](https://subify-cli.vercel.app/)
 
-- `python -m subify` package entry point
-- installable `subify` console command entry point
-- `process`, `generate-srt`, and `embed` command structure
-- interactive shell mode for no-argument `subify`
-- reusable pipeline API in `subify.pipeline`
-- FFmpeg helper boundaries
-- Faster-Whisper transcription boundary configured for English speech recognition
-- SRT rendering
-- subtitle embedding command construction
-- ZIP packaging
-- temporary working directory cleanup through `tempfile.TemporaryDirectory`
-- structured pipeline result metadata for future integrations
-- architecture-focused `unittest` coverage
+## Why it exists
 
-Planned:
+A sidecar `.srt` file is useful for editing. Many players and social workflows still need **burned-in** captions: the subtitle pixels live in the picture, so the video remains readable without a separate file.
 
-- production validation of supported media formats
-- full end-to-end processing against real video samples
-- configurable transcription model/device settings
-- subtitle styling options
-- Telegram bot interface
-- documentation website
+Subify keeps those two outputs together. Automatic speech recognition produces the transcript. FFmpeg hard-subtitles the frames. Packaging puts the editable SRT and the subtitled MP4 in one archive.
 
-## Architecture
+All of this runs on the machine that hosts Subify. Transcription uses Faster-Whisper with English locked (`language="en"`). There is no cloud transcription API in this repository.
 
-The CLI is intentionally thin. It parses arguments, displays user-facing messages, and calls the core pipeline.
-No-argument invocation enters `subify.shell`, which is also only a command router and UI layer.
+## How the pipeline works
 
 ```text
-CLI / Shell
-  -> subify.pipeline.process_video()
-      -> shared models
-      -> FFmpeg audio extraction
-      -> Faster-Whisper transcription
-      -> SRT generation
-      -> FFmpeg subtitle embedding
-      -> ZIP packaging
+video
+  -> audio extraction
+  -> English transcription
+  -> SRT generation
+  -> subtitle embedding
+  -> ZIP packaging
 ```
 
-Additional core entry points support SRT-only generation and embedding an existing SRT:
+1. **Audio extraction.** FFmpeg pulls a temporary mono 16 kHz PCM WAV, which is the format Faster-Whisper expects.
+2. **Transcription.** Faster-Whisper maps that audio to timestamped English segments.
+3. **SRT generation.** Those segments are written as a standard SubRip (`.srt`) file.
+4. **Embedding.** FFmpeg burns the SRT into a new MP4. The original video is left untouched.
+5. **Packaging.** The SRT and the subtitled MP4 are zipped for delivery.
 
-- `subify.pipeline.generate_srt()`
-- `subify.pipeline.embed_existing_subtitles()`
-
-These APIs return structured result objects with output paths, transcript segments, elapsed time, language, and warnings. The future Telegram bot should call these pipeline APIs directly rather than shelling out to the CLI.
-
-## CLI Usage
-
-Subify supports direct command mode for scripts and repeatable terminal usage:
-
-```powershell
-subify --help
-subify --version
-subify process "lesson.mp4"
-subify generate-srt "lesson.mp4"
-subify embed "lesson.mp4" "lesson.srt"
-```
-
-Equivalent module invocation:
-
-```powershell
-python -m subify --help
-python -m subify --version
-python -m subify process "lesson.mp4"
-python -m subify generate-srt "lesson.mp4"
-python -m subify embed "lesson.mp4" "lesson.srt"
-```
-
-To print transcript segments, opt in explicitly:
-
-```powershell
-subify process "lesson.mp4" --show-transcript
-subify generate-srt "lesson.mp4" --show-transcript
-```
-
-The transcript is hidden by default so long videos do not flood the terminal.
-
-## Interactive Shell Mode
-
-Run `subify` with no arguments to open the interactive shell:
-
-```powershell
-subify
-```
-
-Inside the shell, use the same processing commands without repeating the `subify` prefix:
-
-```text
-subify > help
-subify > process "lesson.mp4"
-subify > generate-srt "lesson.mp4"
-subify > embed "lesson.mp4" "lesson.srt"
-subify > exit
-```
-
-Available shell commands:
-
-- `help`
-- `process <video>`
-- `generate-srt <video>`
-- `embed <video> <srt>`
-- `version`
-- `history`
-- `clear` / `cls`
-- `exit` / `quit`
-
-Shell mode is a persistent command router around the same Subify pipeline used by direct command mode. It does not change transcription, SRT generation, subtitle embedding, ZIP packaging, or output behavior.
-
-## Output
-
-Full process output:
-
-```text
-output/
-  lesson_subify.zip
-```
-
-ZIP contents:
-
-```text
-lesson.srt
-lesson_subtitled.mp4
-```
-
-SRT-only output:
-
-```text
-output/
-  lesson.srt
-```
-
-Embed-only output:
-
-```text
-output/
-  lesson_subtitled.mp4
-```
-
-The original video is never modified.
-
-## Subtitle Language
-
-Current subtitle language: English.
-
-Subify currently passes `language="en"` to Faster-Whisper, which performs English speech recognition. This means the current version is intended for English speech to English subtitles. It does not claim universal translation from arbitrary spoken languages into English.
-
-The transcription API keeps language selection in the core layer so a future translation mode can be added without duplicating language behavior in CLI commands.
+`generate-srt` stops after step 3. `embed` starts from an existing video and SRT and only performs embedding.
 
 ## Requirements
 
-- Python 3.11+
-- FFmpeg installed and available on `PATH`
-- Python dependencies from `requirements.txt`
+- Python 3.11 or newer
+- FFmpeg and FFprobe installed and available on `PATH`
 
-Install dependencies:
+FFmpeg is a system dependency. It is not installed by this Python package.
 
-```powershell
-python -m pip install -r requirements.txt
-```
+## Installation
 
-FFmpeg is an external system dependency and is not installed by this package.
+Subify-CLI is not published on PyPI. Clone the repository and install in editable mode so the `subify` command is registered:
 
-## Local Console Command Testing
-
-After installing the project in editable mode, the console command is available as `subify`:
-
-```powershell
+```sh
 python -m pip install -e .
-subify --help
 ```
 
-Without installation, use:
+Without that install, the same entry point is:
 
-```powershell
-python -m subify --help
+```sh
+python -m subify
 ```
 
-## Audio Extraction Strategy
+## Usage
 
-The initial pipeline extracts temporary mono 16 kHz PCM WAV audio for Whisper compatibility:
-
-- mono audio
-- 16 kHz sample rate
-- 16-bit PCM WAV
-
-For a 1.5 hour video, this WAV is roughly 173 MB:
+Running `subify` with no arguments opens the interactive shell. Slash commands drive that session:
 
 ```text
-16000 samples/sec * 2 bytes/sample * 5400 sec ~= 173 MB
+/process "lesson.mp4"
+/generate-srt "lesson.mp4"
+/embed "lesson.mp4" "lesson.srt"
 ```
 
-That is acceptable for the current 1 GB / 1.5 hour target and avoids keeping video data in Python memory. Future optimization can evaluate direct media transcription or compressed temporary audio if disk usage becomes a bottleneck.
+Also available in the shell: `/help`, `/version`, `/config`, `/history`, `/clear`, `/doctor`, `/exit`.
+
+The same work can be invoked directly:
+
+| Command | What it does |
+| --- | --- |
+| `subify process <video>` | Full pipeline. Writes a ZIP. |
+| `subify generate-srt <video>` | English `.srt` only. No embed, no ZIP. |
+| `subify embed <video> <srt>` | Burns an existing SRT into a new MP4. No Whisper. |
+| `subify doctor` | Checks Python, FFmpeg, FFprobe, Faster-Whisper, and write access. |
+
+Optional flags: `--output-dir` to choose the destination, `--show-transcript` to print segments after `process` or `generate-srt`.
+
+```sh
+subify --help
+subify --version
+```
+
+## Output
+
+Default directory: `Downloads/Subify` under the current user’s home folder.
+
+For `lesson.mp4`:
+
+- `process` → `lesson_subify.zip` containing `lesson.srt` and `lesson_subtitled.mp4`
+- `generate-srt` → `lesson.srt`
+- `embed` → `lesson_subtitled.mp4`
+
+If `lesson_subify.zip` already exists, a numbered name such as `lesson_subify (1).zip` is used.
+
+## Telegram
+
+The Telegram adapter polls for `.mp4` uploads, runs the same `process` pipeline, and sends the ZIP back to the chat.
+
+Set `SUBIFY_TELEGRAM_BOT_TOKEN` in the environment, then:
+
+```sh
+python -m telegram
+```
+
+## Development
+
+```sh
+python -m venv .venv
+python -m pip install -e .
+python -m unittest discover -s tests
+```

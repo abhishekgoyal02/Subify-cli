@@ -1,9 +1,9 @@
-"""Terminal UI components for Subify."""
-
 from __future__ import annotations
 
 import io
 import sys
+import threading
+import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
@@ -146,6 +146,24 @@ def render_shell_error(message: str) -> None:
     print_message(f"[red]{message}[/]")
 
 
+def render_legacy_shell_command_error() -> None:
+    message = "\n".join(
+        [
+            "Unknown command.",
+            "",
+            "Subify Shell now uses slash commands.",
+            "",
+            "Examples:",
+            '  /process "video.mp4"',
+            '  /generate-srt "video.mp4"',
+            '  /embed "video.mp4" "subs.srt"',
+            "",
+            "Run /help for all available commands.",
+        ]
+    )
+    print_message(message)
+
+
 def render_unknown_shell_command(command: str) -> None:
     render_shell_error(f"Unknown command: {command}\nType /help for available commands.")
 
@@ -181,7 +199,57 @@ def render_shell_history(history: Sequence[str]) -> None:
     if not entries:
         print_message("[dim]No shell history yet.[/]")
         return
-    print_message("\n".join(entries[-20:]))
+
+    if console is not None and Text is not None:
+        console.print(Text("Recent Commands", style=f"bold {ACCENT}"))
+        console.print()
+        for index, entry in enumerate(entries[-20:], start=1):
+            text = Text(f"{index}. ", style="white")
+            text.append(entry, style="magenta")
+            console.print(text)
+        return
+
+    print("Recent Commands")
+    print()
+    for index, entry in enumerate(entries[-20:], start=1):
+        print(f"{index}. {entry}")
+
+
+def render_shell_config(*, version: str, cwd: Path) -> None:
+    rows = (
+        ("Version", version),
+        ("Workspace", str(cwd)),
+        ("Output Directory", "output/"),
+        ("Temporary Directory", "temp/"),
+        ("Whisper Engine", "Faster-Whisper"),
+        ("Environment", "Local"),
+    )
+
+    if console is not None and Panel is not None and Table is not None and Text is not None:
+        table = Table.grid(padding=(0, 2))
+        table.add_column(style="dim")
+        table.add_column(style="white")
+        for label, value in rows:
+            table.add_row(label, value)
+
+        console.print(
+            Panel(
+                table,
+                title=Text(" Subify Configuration ", style=f"bold {ACCENT}"),
+                title_align="left",
+                border_style=ACCENT,
+                box=box.ROUNDED if box is not None else None,
+                padding=(1, 2),
+            )
+        )
+        return
+
+    print("Subify Configuration")
+    print()
+    for label, value in rows:
+        print(label)
+        print(f"  {value}")
+        print()
 
 
 def read_shell_input(
@@ -215,6 +283,69 @@ def render_stage(stage: str, status: str) -> None:
         print_message(f"[{ACCENT}]  OK[/] {stage}")
 
 
+class PhaseStatus:
+    def __init__(self) -> None:
+        self._title: str | None = None
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._lock = threading.Lock()
+        self._frames = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+
+    def start(self, title: str) -> None:
+        with self._lock:
+            if self._title == title and self._thread is not None:
+                return
+            self._stop_active_locked()
+            self._title = title
+            self._stop.clear()
+            self._thread = threading.Thread(target=self._animate, daemon=True)
+            self._thread.start()
+
+    def complete(self, title: str) -> None:
+        with self._lock:
+            self._stop_active_locked()
+            self._title = None
+            _write_status_line(f"\033[32m[✓]\033[0m {title}", newline=True)
+
+    def fail(self, title: str, detail: str) -> None:
+        with self._lock:
+            self._stop_active_locked()
+            self._title = None
+            _write_status_line(f"\033[31m[✗]\033[0m {title}", newline=True)
+            if detail:
+                _write_status_line(f"    {detail}", newline=True)
+
+    def stop(self) -> None:
+        with self._lock:
+            self._stop_active_locked(clear=True)
+            self._title = None
+
+    def _animate(self) -> None:
+        index = 0
+        while not self._stop.is_set():
+            title = self._title
+            if title is None:
+                return
+            dots = "." * ((index % 3) + 1)
+            _write_status_line(f"[{self._frames[index % len(self._frames)]}] {title}{dots}")
+            index += 1
+            self._stop.wait(0.12)
+
+    def _stop_active_locked(self, *, clear: bool = False) -> None:
+        thread = self._thread
+        if thread is None:
+            return
+        self._stop.set()
+        thread.join()
+        self._thread = None
+        if clear:
+            _write_status_line("")
+
+
+def render_output_location(output_path: Path) -> None:
+    print_message(f"Output:\n{output_path}")
+
+
 def render_transcript_header() -> None:
     print_message(f"[{ACCENT}]Transcript[/]")
 
@@ -235,6 +366,13 @@ def print_message(message: str) -> None:
         console.print(message)
     else:
         print(message)
+
+
+def _write_status_line(message: str, *, newline: bool = False) -> None:
+    output = console.file if console is not None else sys.stdout
+    suffix = "\n" if newline else ""
+    output.write(f"\r\033[K{message}{suffix}")
+    output.flush()
 
 
 def _identity_panel(version: str, cwd: Path | None, height: int | None = None) -> Panel:
@@ -359,12 +497,21 @@ def _read_native_shell_input(suggestions: Sequence[str], exit_hint: str) -> str:
     output.write(f"{top}\n")
 
     line: list[str] = []
+    cursor = 0
     placeholder_visible = True
     highlighted = 0
     visible_suggestions: tuple[str, ...] = ()
     suggestions_closed = False
     _redraw_native_shell_input(
-        output, prompt, line, placeholder_visible, suggestions, highlighted, bottom, current_exit_hint
+        output,
+        prompt,
+        line,
+        cursor,
+        placeholder_visible,
+        suggestions,
+        highlighted,
+        bottom,
+        current_exit_hint,
     )
     while True:
         key = msvcrt.getwch()
@@ -375,7 +522,15 @@ def _read_native_shell_input(suggestions: Sequence[str], exit_hint: str) -> str:
                 if visible_suggestions:
                     highlighted = (highlighted - 1) % len(visible_suggestions)
                     _redraw_native_shell_input(
-                        output, prompt, line, placeholder_visible, suggestions, highlighted, bottom, current_exit_hint
+                        output,
+                        prompt,
+                        line,
+                        cursor,
+                        placeholder_visible,
+                        suggestions,
+                        highlighted,
+                        bottom,
+                        current_exit_hint,
                     )
                     visible_suggestions = _matching_suggestions("".join(line), suggestions)
                 continue
@@ -383,7 +538,64 @@ def _read_native_shell_input(suggestions: Sequence[str], exit_hint: str) -> str:
                 if visible_suggestions:
                     highlighted = (highlighted + 1) % len(visible_suggestions)
                     _redraw_native_shell_input(
-                        output, prompt, line, placeholder_visible, suggestions, highlighted, bottom, current_exit_hint
+                        output,
+                        prompt,
+                        line,
+                        cursor,
+                        placeholder_visible,
+                        suggestions,
+                        highlighted,
+                        bottom,
+                        current_exit_hint,
+                    )
+                    visible_suggestions = _matching_suggestions("".join(line), suggestions)
+                continue
+            if key == "K":
+                if cursor > 0:
+                    cursor -= 1
+                    _redraw_native_shell_input(
+                        output,
+                        prompt,
+                        line,
+                        cursor,
+                        placeholder_visible,
+                        suggestions,
+                        highlighted,
+                        bottom,
+                        current_exit_hint,
+                    )
+                    visible_suggestions = _matching_suggestions("".join(line), suggestions)
+                continue
+            if key == "M":
+                if cursor < len(line):
+                    cursor += 1
+                    _redraw_native_shell_input(
+                        output,
+                        prompt,
+                        line,
+                        cursor,
+                        placeholder_visible,
+                        suggestions,
+                        highlighted,
+                        bottom,
+                        current_exit_hint,
+                    )
+                    visible_suggestions = _matching_suggestions("".join(line), suggestions)
+                elif visible_suggestions and line:
+                    line = list(visible_suggestions[highlighted])
+                    cursor = len(line)
+                    placeholder_visible = False
+                    highlighted = 0
+                    _redraw_native_shell_input(
+                        output,
+                        prompt,
+                        line,
+                        cursor,
+                        placeholder_visible,
+                        suggestions,
+                        highlighted,
+                        bottom,
+                        current_exit_hint,
                     )
                     visible_suggestions = _matching_suggestions("".join(line), suggestions)
                 continue
@@ -395,6 +607,7 @@ def _read_native_shell_input(suggestions: Sequence[str], exit_hint: str) -> str:
                     output,
                     prompt,
                     line,
+                    cursor,
                     placeholder_visible,
                     suggestions,
                     highlighted,
@@ -413,8 +626,17 @@ def _read_native_shell_input(suggestions: Sequence[str], exit_hint: str) -> str:
         if key in ("\r", "\n"):
             if visible_suggestions and line and "".join(line) != visible_suggestions[highlighted]:
                 line = list(visible_suggestions[highlighted])
+                cursor = len(line)
                 _redraw_native_shell_input(
-                    output, prompt, line, False, suggestions, highlighted, bottom, current_exit_hint
+                    output,
+                    prompt,
+                    line,
+                    cursor,
+                    False,
+                    suggestions,
+                    highlighted,
+                    bottom,
+                    current_exit_hint,
                 )
             _finish_native_shell_input(output, prompt, line, False, bottom, current_exit_hint)
             output.flush()
@@ -423,10 +645,19 @@ def _read_native_shell_input(suggestions: Sequence[str], exit_hint: str) -> str:
             current_exit_hint = SHELL_DEFAULT_EXIT_HINT
             if visible_suggestions:
                 line = list(visible_suggestions[highlighted])
+                cursor = len(line)
                 placeholder_visible = False
                 highlighted = 0
                 _redraw_native_shell_input(
-                    output, prompt, line, placeholder_visible, suggestions, highlighted, bottom, current_exit_hint
+                    output,
+                    prompt,
+                    line,
+                    cursor,
+                    placeholder_visible,
+                    suggestions,
+                    highlighted,
+                    bottom,
+                    current_exit_hint,
                 )
                 visible_suggestions = _matching_suggestions("".join(line), suggestions)
             continue
@@ -436,18 +667,35 @@ def _read_native_shell_input(suggestions: Sequence[str], exit_hint: str) -> str:
             highlighted = 0
             suggestions_closed = True
             _redraw_native_shell_input(
-                output, prompt, line, placeholder_visible, (), highlighted, bottom, current_exit_hint
+                output,
+                prompt,
+                line,
+                cursor,
+                placeholder_visible,
+                (),
+                highlighted,
+                bottom,
+                current_exit_hint,
             )
             continue
         if key in ("\b", "\x7f"):
             current_exit_hint = SHELL_DEFAULT_EXIT_HINT
-            if line:
-                line.pop()
+            if cursor > 0:
+                line.pop(cursor - 1)
+                cursor -= 1
                 highlighted = 0
                 placeholder_visible = len(line) == 0
                 suggestions_closed = False
                 _redraw_native_shell_input(
-                    output, prompt, line, placeholder_visible, suggestions, highlighted, bottom, current_exit_hint
+                    output,
+                    prompt,
+                    line,
+                    cursor,
+                    placeholder_visible,
+                    suggestions,
+                    highlighted,
+                    bottom,
+                    current_exit_hint,
                 )
                 visible_suggestions = _matching_suggestions("".join(line), suggestions)
             continue
@@ -455,12 +703,21 @@ def _read_native_shell_input(suggestions: Sequence[str], exit_hint: str) -> str:
             continue
 
         current_exit_hint = SHELL_DEFAULT_EXIT_HINT
-        line.append(key)
+        line.insert(cursor, key)
+        cursor += 1
         placeholder_visible = False
         highlighted = 0
         suggestions_closed = False
         _redraw_native_shell_input(
-            output, prompt, line, placeholder_visible, suggestions, highlighted, bottom, current_exit_hint
+            output,
+            prompt,
+            line,
+            cursor,
+            placeholder_visible,
+            suggestions,
+            highlighted,
+            bottom,
+            current_exit_hint,
         )
         visible_suggestions = () if suggestions_closed else _matching_suggestions("".join(line), suggestions)
 
@@ -469,6 +726,7 @@ def _redraw_native_shell_input(
     output: io.TextIOBase,
     prompt: str,
     line: Sequence[str],
+    cursor: int,
     placeholder_visible: bool,
     suggestions: Sequence[str],
     highlighted: int,
@@ -484,7 +742,7 @@ def _redraw_native_shell_input(
         input_columns = 2
     else:
         output.write(f"{prompt}{value}")
-        input_columns = 2 + len(value)
+        input_columns = 2 + cursor
 
     if visible_suggestions:
         for index, suggestion in enumerate(visible_suggestions):
@@ -516,7 +774,16 @@ def _finish_native_shell_input(
     exit_hint: str,
 ) -> None:
     _redraw_native_shell_input(
-        output, prompt, line, placeholder_visible, (), 0, bottom, exit_hint, show_hint=False
+        output,
+        prompt,
+        line,
+        len(line),
+        placeholder_visible,
+        (),
+        0,
+        bottom,
+        exit_hint,
+        show_hint=False,
     )
     output.write("\033[1B\r\n")
 

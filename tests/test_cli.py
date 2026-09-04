@@ -79,30 +79,41 @@ class CLITests(unittest.TestCase):
     @patch("subify.commands.process_video")
     def test_process_maps_pipeline_error_to_nonzero_exit(self, process_video) -> None:
         process_video.side_effect = InputValidationError("missing input")
-        stderr = StringIO()
+        phase_status = Mock()
 
-        with patch("sys.stderr", stderr):
+        with patch("subify.commands.ui.PhaseStatus", return_value=phase_status):
             exit_code = main(["process", "missing.mp4"])
 
         self.assertEqual(exit_code, 1)
-        self.assertIn("missing input", stderr.getvalue())
-        self.assertNotIn("Traceback", stderr.getvalue())
+        phase_status.fail.assert_called_once_with("Could not prepare the video", "missing input")
 
-    @patch("subify.commands.ui.render_error", side_effect=RuntimeError("render failed"))
     @patch("subify.commands.process_video")
     def test_process_error_reporting_falls_back_if_renderer_fails(
         self,
         process_video,
-        _render_error,
     ) -> None:
         process_video.side_effect = InputValidationError("missing [input]")
-        stderr = StringIO()
+        phase_status = Mock()
 
-        with patch("sys.stderr", stderr):
+        with patch("subify.commands.ui.PhaseStatus", return_value=phase_status):
             exit_code = main(["process", "missing.mp4"])
 
         self.assertEqual(exit_code, 1)
-        self.assertIn("missing [input]", stderr.getvalue())
+        phase_status.fail.assert_called_once_with("Could not prepare the video", "missing [input]")
+
+    @patch("subify.commands.generate_srt")
+    def test_generate_srt_maps_pipeline_error_to_phase_failure(self, generate_srt) -> None:
+        generate_srt.side_effect = InputValidationError("Faster-Whisper failed to transcribe the audio.")
+        phase_status = Mock()
+
+        with patch("subify.commands.ui.PhaseStatus", return_value=phase_status):
+            exit_code = main(["generate-srt", "video.mp4"])
+
+        self.assertEqual(exit_code, 1)
+        phase_status.fail.assert_called_once_with(
+            "Could not generate subtitles",
+            "Faster-Whisper failed to transcribe the audio.",
+        )
 
     @patch("subify.commands.generate_srt")
     def test_generate_srt_calls_pipeline_with_path_containing_spaces(self, generate_srt) -> None:
@@ -149,15 +160,17 @@ class CLITests(unittest.TestCase):
 
     @patch("subify.commands._print_dependency_status")
     @patch("subify.commands.process_video")
-    def test_process_progress_stages_are_command_specific(
+    def test_process_progress_uses_user_facing_phases(
         self,
         process_video,
         _print_dependency_status,
     ) -> None:
-        observed: list[tuple[str, str]] = []
-
         def run_pipeline(_video_path: Path, *, output_dir: Path, progress_callback):
             for stage in [
+                "input_validation",
+                "dependency_validation",
+                "duration_validation",
+                "disk_space_validation",
                 "audio_extraction",
                 "english_transcription",
                 "srt_generation",
@@ -169,36 +182,64 @@ class CLITests(unittest.TestCase):
             return ProcessResult(zip_path=Path("output/video_subify.zip"), segments=[])
 
         process_video.side_effect = run_pipeline
-        with patch("subify.ui.print_message") as print_message:
+        phase_status = Mock()
+        with patch("subify.commands.ui.PhaseStatus", return_value=phase_status):
             exit_code = main(["process", "video.mp4"])
 
         self.assertEqual(exit_code, 0)
-        observed = [call.args[0] for call in print_message.call_args_list]
-        self.assertTrue(any("Audio extraction" in message for message in observed))
-        self.assertTrue(any("Subtitle embedding" in message for message in observed))
-        self.assertTrue(any("ZIP packaging" in message for message in observed))
+        starts = [call.args[0] for call in phase_status.start.call_args_list]
+        completes = [call.args[0] for call in phase_status.complete.call_args_list]
+        self.assertEqual(
+            starts,
+            [
+                "Looking over your video",
+                "Extracting .srt from audio",
+                "Burning subtitles into video",
+                "Preparing the .zip file",
+            ],
+        )
+        self.assertEqual(starts, completes)
+        self.assertNotIn("Input validation", starts)
+        self.assertNotIn("Audio extraction", starts)
 
     @patch("subify.commands._print_dependency_status")
     @patch("subify.commands.generate_srt")
-    def test_generate_srt_does_not_show_embedding_stage(
+    def test_generate_srt_uses_srt_only_user_facing_phases(
         self,
         generate_srt,
         _print_dependency_status,
     ) -> None:
-        def run_pipeline(_video_path: Path, *, output_dir: Path, progress_callback):
-            for stage in ["audio_extraction", "english_transcription", "srt_generation"]:
+        def run_pipeline(_video_path: Path, *, output_dir: Path | None, progress_callback):
+            for stage in [
+                "input_validation",
+                "dependency_validation",
+                "duration_validation",
+                "disk_space_validation",
+                "audio_extraction",
+                "english_transcription",
+                "srt_generation",
+            ]:
                 progress_callback((stage, "start"))
                 progress_callback((stage, "complete"))
             return GenerateSRTResult(srt_path=Path("output/video.srt"), segments=[])
 
         generate_srt.side_effect = run_pipeline
-        with patch("subify.ui.print_message") as print_message:
+        phase_status = Mock()
+        with patch("subify.commands.ui.PhaseStatus", return_value=phase_status):
             exit_code = main(["generate-srt", "video.mp4"])
 
         self.assertEqual(exit_code, 0)
-        messages = "\n".join(call.args[0] for call in print_message.call_args_list)
-        self.assertIn("SRT generation", messages)
-        self.assertNotIn("Subtitle embedding", messages)
+        starts = [call.args[0] for call in phase_status.start.call_args_list]
+        self.assertEqual(
+            starts,
+            [
+                "Looking over your video",
+                "Listening to the audio",
+                "Writing the .srt file",
+            ],
+        )
+        self.assertNotIn("Burning subtitles into video", starts)
+        self.assertNotIn("Preparing the .zip file", starts)
 
     @patch("subify.commands._print_dependency_status")
     @patch("subify.commands.process_video")
@@ -290,14 +331,16 @@ class CLITests(unittest.TestCase):
     @patch("subify.commands._print_dependency_status")
     @patch("subify.commands.process_video", side_effect=RuntimeError("boom"))
     def test_process_hides_unexpected_tracebacks(self, _process_video, _print_dependency_status) -> None:
-        stderr = StringIO()
+        phase_status = Mock()
 
-        with patch("sys.stderr", stderr):
+        with patch("subify.commands.ui.PhaseStatus", return_value=phase_status):
             exit_code = main(["process", "video.mp4"])
 
         self.assertEqual(exit_code, 1)
-        self.assertIn("Unexpected error. Processing aborted.", stderr.getvalue())
-        self.assertNotIn("Traceback", stderr.getvalue())
+        phase_status.fail.assert_called_once_with(
+            "Could not prepare the video",
+            "Unexpected error. Processing aborted.",
+        )
 
 
 if __name__ == "__main__":
