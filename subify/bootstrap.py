@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import shutil
-import sys
 from functools import lru_cache
 
-from . import ui
 from .errors import DependencyError
 
 
@@ -36,17 +34,6 @@ def managed_ffmpeg_paths() -> tuple[str, str]:
 def bootstrap_runtime_dependencies(*, announce: bool = False) -> None:
     """Prepare runtime dependencies that should work after pip install."""
     if system_ffmpeg_available():
-        return
-
-    if announce and sys.stdout.isatty():
-        status = ui.PhaseStatus()
-        status.start("Setting up Subify media tools")
-        try:
-            managed_ffmpeg_paths()
-        except Exception as exc:
-            status.fail("Could not set up Subify media tools", str(exc))
-            raise
-        status.complete("Subify media tools ready")
         return
 
     managed_ffmpeg_paths()

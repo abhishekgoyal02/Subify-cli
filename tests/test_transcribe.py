@@ -1,6 +1,8 @@
 import sys
 import types
 import unittest
+import warnings
+from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
@@ -85,6 +87,27 @@ class TranscribeTests(unittest.TestCase):
         )
         self.assertEqual(first, [TranscriptSegment(start=0.0, end=1.0, text="cached")])
         self.assertEqual(second, [TranscriptSegment(start=0.0, end=1.0, text="cached")])
+
+    def test_transcription_suppresses_third_party_warning_and_stderr_noise(self) -> None:
+        class FakeWhisperModel:
+            def __init__(self, *_args, **_kwargs) -> None:
+                warnings.warn("hf_xet cache warning", UserWarning)
+                print("huggingface downloader noise", file=sys.stderr)
+
+            def transcribe(self, _audio_path: str, **_options):
+                warnings.warn("symlink cache warning", UserWarning)
+                print("download progress bar", file=sys.stderr)
+                segment = types.SimpleNamespace(start=0.0, end=1.0, text=" clean ")
+                return [segment], object()
+
+        fake_module = types.SimpleNamespace(WhisperModel=FakeWhisperModel)
+        stderr = StringIO()
+
+        with patch.dict(sys.modules, {"faster_whisper": fake_module}), patch("sys.stderr", stderr):
+            segments = transcribe_audio(Path("audio.wav"))
+
+        self.assertEqual(segments, [TranscriptSegment(start=0.0, end=1.0, text="clean")])
+        self.assertEqual(stderr.getvalue(), "")
 
     @patch("subify.transcribe.os.cpu_count", return_value=12)
     def test_recommended_cpu_threads_uses_physical_core_style_heuristic(self, _cpu_count) -> None:

@@ -26,14 +26,7 @@ class BootstrapTests(unittest.TestCase):
         _system_available,
         managed_paths,
     ) -> None:
-        stdout = Mock()
-        stdout.isatty.return_value = True
-
-        with (
-            patch("subify.bootstrap.sys.stdout", stdout),
-            patch("subify.bootstrap.ui.PhaseStatus") as phase_status,
-            patch("subify.bootstrap.ui.print_message") as print_message,
-        ):
+        with patch("subify.ui.PhaseStatus") as phase_status, patch("subify.ui.print_message") as print_message:
             bootstrap.bootstrap_runtime_dependencies(announce=True)
 
         managed_paths.assert_not_called()
@@ -78,26 +71,16 @@ class BootstrapTests(unittest.TestCase):
 
     @patch("subify.bootstrap.managed_ffmpeg_paths", return_value=("managed-ffmpeg", "managed-ffprobe"))
     @patch("subify.bootstrap.system_ffmpeg_available", return_value=False)
-    def test_announce_path_renders_status_without_real_download(
+    def test_announce_path_runs_managed_setup_without_ready_status(
         self,
         _system_available,
         managed_paths,
     ) -> None:
-        phase_status = Mock()
-        stdout = Mock()
-        stdout.isatty.return_value = True
-
-        with (
-            patch("subify.bootstrap.sys.stdout", stdout),
-            patch("subify.bootstrap.ui.PhaseStatus", return_value=phase_status),
-            patch("subify.bootstrap.ui.print_message") as print_message,
-        ):
+        with patch("subify.ui.PhaseStatus") as phase_status, patch("subify.ui.print_message") as print_message:
             bootstrap.bootstrap_runtime_dependencies(announce=True)
 
         managed_paths.assert_called_once_with()
-        phase_status.start.assert_called_once_with("Setting up Subify media tools")
-        phase_status.complete.assert_called_once_with("Subify media tools ready")
-        phase_status.fail.assert_not_called()
+        phase_status.assert_not_called()
         print_message.assert_not_called()
 
 

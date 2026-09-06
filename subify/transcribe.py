@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager, redirect_stderr
 import logging
 import os
 from pathlib import Path
 from time import perf_counter
+import warnings
 
 from .errors import DependencyError, TranscriptionError
 from .models import TranscriptSegment
@@ -46,7 +48,8 @@ class WhisperTranscriber:
 
         started_at = perf_counter()
         try:
-            segments, _info = model.transcribe(str(audio_path), **options)
+            with _suppress_transcription_library_noise():
+                segments, _info = model.transcribe(str(audio_path), **options)
             result = [
                 TranscriptSegment(start=segment.start, end=segment.end, text=segment.text.strip())
                 for segment in segments
@@ -71,22 +74,24 @@ class WhisperTranscriber:
         if self._model is not None:
             return self._model
 
-        try:
-            from faster_whisper import WhisperModel
-        except ImportError as exc:
-            raise DependencyError(
-                "faster-whisper is not installed. Install project dependencies first."
-            ) from exc
+        with _suppress_transcription_library_noise():
+            try:
+                from faster_whisper import WhisperModel
+            except ImportError as exc:
+                raise DependencyError(
+                    "faster-whisper is not installed. Install project dependencies first."
+                ) from exc
 
         started_at = perf_counter()
         try:
-            model_options: dict[str, object] = {
-                "device": self.device,
-                "compute_type": self.compute_type,
-            }
-            if self.cpu_threads is not None:
-                model_options["cpu_threads"] = self.cpu_threads
-            self._model = WhisperModel(self.model_size, **model_options)
+            with _suppress_transcription_library_noise():
+                model_options: dict[str, object] = {
+                    "device": self.device,
+                    "compute_type": self.compute_type,
+                }
+                if self.cpu_threads is not None:
+                    model_options["cpu_threads"] = self.cpu_threads
+                self._model = WhisperModel(self.model_size, **model_options)
         except Exception as exc:
             raise TranscriptionError(f"Transcription failed: {exc}") from exc
 
@@ -106,6 +111,19 @@ def recommended_cpu_threads() -> int:
     if logical_cpus is None:
         return 1
     return max(1, min(6, logical_cpus))
+
+
+@contextmanager
+def _suppress_transcription_library_noise():
+    previous_disable = logging.root.manager.disable
+    with open(os.devnull, "w", encoding="utf-8") as devnull:
+        with warnings.catch_warnings(), redirect_stderr(devnull):
+            warnings.simplefilter("ignore")
+            logging.disable(logging.CRITICAL)
+            try:
+                yield
+            finally:
+                logging.disable(previous_disable)
 
 
 def transcribe_audio(
